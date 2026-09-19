@@ -1,11 +1,11 @@
 /**
  * Client-half checks for dsh-plugin-jev: drives the real bundle through the
  * same window.__ModuleLoader__.load factory the web shell uses, then asserts the
- * contribution directly — no renderer needed.
+ * contributions directly — no renderer needed.
  *
- * The plugin is agent-facing, so the only browser contribution is the Settings
- * plugins tab (the API key + catalog); there is deliberately no composer-dock
- * pill under the chat.
+ * The plugin is agent-facing: the browser contributes the Settings tab (key,
+ * model, overall stats) and a read-only per-chat stats chip. There is no query
+ * console.
  *
  * Usage: node test/client.test.mjs
  */
@@ -45,7 +45,7 @@ async function check(label, fn) {
   catch (error) { failures += 1; console.log('  FAIL ' + label + '\n       ' + (error.stack ?? error.message)) }
 }
 
-await check('apply registers the Settings plugins tab and no composer dock', () => {
+await check('apply registers the Settings tab and the composer-dock stats chip', () => {
   const seen = []
   const ctx = {
     effect: (fn) => fn(),
@@ -55,26 +55,45 @@ await check('apply registers the Settings plugins tab and no composer dock', () 
     },
   }
   api.apply(ctx)
-  assert.equal(seen.length, 1, 'exactly one slot contribution')
-  const tab = seen[0]
-  assert.equal(tab.options.name, 'settings.plugins.tab')
+  assert.equal(seen.length, 2, 'exactly two slot contributions')
+  const tab = seen.find((entry) => entry.options.name === 'settings.plugins.tab')
+  assert.ok(tab)
   assert.equal(tab.options.id, 'jev')
   assert.equal(tab.options.order, 40)
   assert.equal(tab.options.label, 'Jev (TypeSafe)')
   assert.equal(typeof tab.component, 'function')
-  assert.equal(seen.find((entry) => entry.options.name === 'conversation.composer.dock'), undefined)
+  const dock = seen.find((entry) => entry.options.name === 'conversation.composer.dock')
+  assert.ok(dock, 'dock stats chip registered')
+  assert.equal(dock.options.id, 'jev-stats')
+  assert.equal(typeof dock.component, 'function')
 })
 
-await check('the bundle source contains no composer dock wiring', () => {
+await check('the bundle carries no query-console wiring', () => {
   const source = readFileSync(bundlePath, 'utf8')
-  assert.doesNotMatch(source, /conversation\.composer\.dock/)
-  assert.doesNotMatch(source, /JevDock/)
-  assert.doesNotMatch(source, /dsh-client-ui-conversation/)
+  assert.doesNotMatch(source, /questionsFromForm|PRESETS|dshJevModal|dshJevAnswer/)
 })
 
-await check('the settings surface is exported', () => {
-  assert.equal(typeof api.JevSettingsTab, 'function')
-  assert.equal(typeof api.KeyMenu, 'function')
+await check('the stats chip label is pure and total-aware', () => {
+  assert.equal(api.formatJevStats({ calls: 0, costUsd: 0 }), null)
+  assert.equal(api.formatJevStats(null), null)
+  assert.equal(api.formatJevStats({ calls: 1, costUsd: 0.000019 }), 'Jev · 1 call · $0.000019')
+  assert.equal(api.formatJevStats({ calls: 4, costUsd: 0.5 }), 'Jev · 4 calls · $0.5000')
+})
+
+await check('the dock chip renders nothing without a projection value', () => {
+  assert.equal(api.JevStatsPill({ useProjection: () => undefined }), null)
+  assert.equal(api.JEV_USAGE_KEY, 'jevUsage')
+})
+
+await check('formatting helpers read correctly', () => {
+  assert.equal(api.formatTokens(312), '312')
+  assert.equal(api.formatTokens(12400), '12.4k')
+  assert.equal(api.formatCost(0), '$0')
+  assert.ok(api.formatCost(312 * 4.2e-8).startsWith('$0.00001'))
+  assert.equal(api.formatCost(NaN), '—')
+})
+
+await check('model fallback aliases are present', () => {
   assert.deepEqual(api.MODEL_FALLBACK, ['jev-latest', 'jev-preview', 'jev-1.13.0'])
 })
 

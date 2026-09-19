@@ -7,8 +7,13 @@
  * Usage: node test/tool.test.mjs
  */
 import assert from 'node:assert/strict'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { apply } from '../lib/index.js'
 import { JEV_TOOL_NAME, JEV_TOOL_PROMPT_ORDER, formatJevAnswers, renderJevResult } from '../lib/tool.js'
+import { JEV_USAGE_KEY } from '../lib/usage.js'
+import { JevStore } from '../lib/store.js'
 
 let failures = 0
 async function check(label, fn) {
@@ -34,6 +39,8 @@ function makeHarness(options = {}) {
   }
   const sections = []
   const toolDefs = []
+  const projections = []
+  const store = options.store || new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-tool-')), 'state.json'))
   const ctx = {
     get(key) {
       if (key === 'credentials') return credentials
@@ -45,9 +52,10 @@ function makeHarness(options = {}) {
     webServer: { register: () => () => {} },
     systemPrompt: { section: (section) => { sections.push(section); return () => {} } },
     tools: { register: (definition) => { toolDefs.push(definition); return () => {} } },
+    sessionProjections: { register: (definition) => { projections.push(definition); return () => {} } },
   }
-  apply(ctx, Object.assign({ baseURL: 'https://api.typesafe.ai/v1', fetchImpl: options.fetchImpl }, options.config))
-  return { sections, toolDefs }
+  apply(ctx, Object.assign({ baseURL: 'https://api.typesafe.ai/v1', fetchImpl: options.fetchImpl, store }, options.config))
+  return { sections, toolDefs, projections, store }
 }
 
 const REPLY = {
@@ -140,6 +148,45 @@ await check('formatters tolerate sparse answers', () => {
   assert.match(formatJevAnswers({ b: { type: 'weird' } }), /b \[weird\]:/)
   assert.match(renderJevResult({ model: 'm', answers: {}, usage: {}, costUsd: 0, elapsedMs: 5 }), /Jev \(m\) answered:/)
   assert.match(renderJevResult({}), /unknown model/)
+})
+
+await check('mounting registers the jevUsage projection', () => {
+  const harness = makeHarness({ stored: { typesafe: 'k' }, fetchImpl: async () => responseFor(200, REPLY) })
+  assert.equal(harness.projections.length, 1)
+  assert.equal(harness.projections[0].key, JEV_USAGE_KEY)
+  assert.equal(typeof harness.projections[0].wire.view, 'function')
+  const folded = harness.projections[0].apply(harness.projections[0].init(), { type: 'jev/usage', data: { model: 'm', inputTokens: 5, costUsd: 0.1 } })
+  assert.equal(folded.calls, 1)
+  assert.equal(folded.costUsd, 0.1)
+})
+
+await check('execute records a jev/usage event and the overall aggregate', async () => {
+  const harness = makeHarness({ stored: { typesafe: 'k' }, fetchImpl: async () => responseFor(200, REPLY) })
+  const appended = []
+  const exec = { agent: { session: { id: 'sess-1', append: (type, data) => appended.push({ type, data }) } } }
+  await harness.toolDefs[0].execute(ARGS, exec)
+  assert.equal(appended.length, 1)
+  assert.equal(appended[0].type, 'jev/usage')
+  assert.equal(appended[0].data.sessionId, 'sess-1')
+  assert.equal(appended[0].data.inputTokens, 453)
+  const snapshot = harness.store.snapshot()
+  assert.equal(snapshot.totals.calls, 1)
+  assert.equal(snapshot.totals.inputTokens, 453)
+  assert.equal(snapshot.sessionsTracked, 1)
+  assert.equal(snapshot.byModel['jev-1.13.0'].calls, 1)
+})
+
+await check('the stored model is the default when args.model is absent', async () => {
+  const seen = []
+  const store = new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-tool-')), 'state.json'))
+  store.setModel('jev-preview')
+  const harness = makeHarness({
+    stored: { typesafe: 'k' },
+    store,
+    fetchImpl: async (url, options) => { seen.push(JSON.parse(options.body)); return responseFor(200, REPLY) },
+  })
+  await harness.toolDefs[0].execute(ARGS)
+  assert.equal(seen[0].model, 'jev-preview')
 })
 
 console.log(failures === 0 ? '\nall tool checks passed' : '\n' + failures + ' tool check(s) failed')

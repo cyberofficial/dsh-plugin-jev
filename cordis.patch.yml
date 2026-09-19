@@ -3,7 +3,7 @@
 # automatically, so the single row below mounts both halves — the host half,
 # which registers the agent-facing jev_ask tool plus the /plugins/dsh-plugin-jev/
 # api/... routes, and the browser half's Settings -> Plugins "Jev (TypeSafe)"
-# tab that owns the API key. There is no composer-dock pill.
+# tab plus the read-only per-chat Jev stats chip in the composer dock.
 #
 # The owner plugin name is the package name so the client module host pairs the
 # row with this package's `dsh.client` browser bundle.

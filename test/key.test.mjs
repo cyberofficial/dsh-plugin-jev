@@ -10,7 +10,11 @@
  * Usage: node test/key.test.mjs
  */
 import assert from 'node:assert/strict'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { apply, TYPESAFE_CREDENTIAL_REF, DEFAULT_COST_PER_TOKEN } from '../lib/index.js'
+import { JevStore } from '../lib/store.js'
 
 let failures = 0
 async function check(label, fn) {
@@ -64,6 +68,8 @@ function makeHarness(options = {}) {
   const launch = { get: (name) => (options.env && options.env[name] != null ? { value: options.env[name] } : undefined) }
   const sections = []
   const toolDefs = []
+  const projections = []
+  const store = options.store || new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-key-')), 'state.json'))
   const ctx = {
     get(key) {
       if (key === 'credentials') return credentials
@@ -76,9 +82,10 @@ function makeHarness(options = {}) {
     webServer,
     systemPrompt: { section: (section) => { sections.push(section); return () => {} } },
     tools: { register: (definition) => { toolDefs.push(definition); return () => {} } },
+    sessionProjections: { register: (definition) => { projections.push(definition); return () => {} } },
   }
-  apply(ctx, { baseURL: 'https://api.typesafe.ai/v1', fetchImpl: options.fetchImpl, cacheMs: Number.isFinite(options.cacheMs) ? options.cacheMs : 0 })
-  return { routes, calls, stored, sections, toolDefs }
+  apply(ctx, { baseURL: 'https://api.typesafe.ai/v1', fetchImpl: options.fetchImpl, store, cacheMs: Number.isFinite(options.cacheMs) ? options.cacheMs : 0 })
+  return { routes, calls, stored, sections, toolDefs, projections, store }
 }
 
 async function invoke(harness, path, req) {
@@ -94,6 +101,8 @@ const MODELS = '/plugins/dsh-plugin-jev/api/models'
 const STATUS = '/plugins/dsh-plugin-jev/api/status'
 const KEY = '/plugins/dsh-plugin-jev/api/key'
 const TRANSCRIPT = '/plugins/dsh-plugin-jev/api/transcript'
+const SETTINGS = '/plugins/dsh-plugin-jev/api/settings'
+const STATS = '/plugins/dsh-plugin-jev/api/stats'
 
 const ASK_BODY = { state: 'Help! My payouts have been failing for 3 days.', questions: { is_urgent: { type: 'noul', instructions: 'Does this convey urgency?' } } }
 const ASK_REPLY = { model: 'jev-latest', answers: { is_urgent: { type: 'noul', noul: 0.92 } }, usage: { input_tokens: 312, output_tokens: 48 } }
@@ -226,6 +235,31 @@ await check('transcript route folds a session and degrades without one', async (
 
   const unknown = await invoke(harness, TRANSCRIPT, makeReq('GET', TRANSCRIPT + '?session=nope'))
   assert.equal(unknown.body.reason, 'unknown-session')
+})
+
+await check('settings route reads and writes the model preference', async () => {
+  const harness = makeHarness({ fetchImpl: async () => responseFor(500, {}) })
+  const initial = await invoke(harness, SETTINGS, makeReq('GET', SETTINGS))
+  assert.equal(initial.status, 200)
+  assert.equal(initial.body.model, 'jev-latest')
+  const saved = await invoke(harness, SETTINGS, makeReq('POST', SETTINGS, { model: '  jev-preview  ' }))
+  assert.equal(saved.status, 200)
+  assert.equal(saved.body.storedModel, 'jev-preview')
+  const empty = await invoke(harness, SETTINGS, makeReq('POST', SETTINGS, { model: '   ' }))
+  assert.equal(empty.status, 400)
+})
+
+await check('stats route reports the aggregate and the projection key', async () => {
+  const store = new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-key-')), 'state.json'))
+  store.record({ sessionId: 's1', model: 'jev-1.13.0', inputTokens: 312, outputTokens: 48, costUsd: 312 * DEFAULT_COST_PER_TOKEN })
+  const harness = makeHarness({ fetchImpl: async () => responseFor(500, {}), store })
+  const stats = await invoke(harness, STATS, makeReq('GET', STATS))
+  assert.equal(stats.status, 200)
+  assert.equal(stats.body.totals.calls, 1)
+  assert.equal(stats.body.totals.inputTokens, 312)
+  assert.equal(stats.body.sessionsTracked, 1)
+  assert.equal(stats.body.projectionKey, 'jevUsage')
+  assert.equal(typeof stats.body.costPerToken, 'number')
 })
 
 console.log(failures === 0 ? '\nall route checks passed' : '\n' + failures + ' route check(s) failed')
