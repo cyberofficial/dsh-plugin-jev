@@ -19,7 +19,7 @@ its own — there is **no human query console**.
   - a system-prompt guidance section (`tool:jev_ask`) that tells the model to
     use Jev for judgment under uncertainty instead of guessing.
 - **Usage accounting** (`lib/usage.js` + `lib/store.js`):
-  - every successful call appends a `jev/usage` event to the owning session,
+  - every successful call projects its usage onto the `tool/result` event's `meta` (a known event type — no custom session event, which the harness's log reader would refuse),
     folded by the `jevUsage` session projection and shipped to the browser; and
   - the same call updates a small JSON aggregate under the DSH home for the
     Settings totals.
@@ -147,7 +147,7 @@ the cap.
 
 - `lib/index.js` — the host half (Cordis plugin; routes, credential, folds)
 - `lib/tool.js` — the agent tool, guidance text, and model-facing formatters
-- `lib/usage.js` — the `jev/usage` event fold, the `jevUsage` projection, and
+- `lib/usage.js` — the per-session usage fold (from `tool/result` meta), the `jevUsage` projection, and
   the stats formatting
 - `lib/store.js` — the persisted model choice + overall aggregate
 - `src/client.template.js` — the browser half source

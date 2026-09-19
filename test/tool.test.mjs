@@ -155,20 +155,34 @@ await check('mounting registers the jevUsage projection', () => {
   assert.equal(harness.projections.length, 1)
   assert.equal(harness.projections[0].key, JEV_USAGE_KEY)
   assert.equal(typeof harness.projections[0].wire.view, 'function')
-  const folded = harness.projections[0].apply(harness.projections[0].init(), { type: 'jev/usage', data: { model: 'm', inputTokens: 5, costUsd: 0.1 } })
+  const apply = harness.projections[0].apply
+  // Current source: the call's tool/result meta carries the usage.
+  const folded = apply(harness.projections[0].init(), { type: 'tool/result', time: 1700000000000, data: { meta: { jevUsage: { model: 'm', inputTokens: 5, costUsd: 0.1 } } } })
   assert.equal(folded.calls, 1)
   assert.equal(folded.costUsd, 0.1)
+  assert.equal(folded.byModel.m.calls, 1)
+  assert.ok(folded.lastAt)
+  // Legacy source: a retro-marked-ignorable jev/usage event still folds, so old
+  // sessions keep their counts; unrelated events are no-ops.
+  const legacy = apply(harness.projections[0].init(), { type: 'jev/usage', ignorable: true, data: { model: 'm', inputTokens: 2, outputTokens: 1, costUsd: 1 } })
+  assert.equal(legacy.calls, 1)
+  assert.equal(legacy.outputTokens, 1)
+  const untouched = harness.projections[0].init()
+  assert.equal(apply(untouched, { type: 'tool/result', data: {} }), untouched, 'unrelated tool/result is a no-op')
+  assert.equal(apply(untouched, { type: 'user/message', data: {} }), untouched, 'other events are no-ops')
 })
 
-await check('execute records a jev/usage event and the overall aggregate', async () => {
+await check('execute writes no custom session event; usage rides tool/result meta', async () => {
   const harness = makeHarness({ stored: { typesafe: 'k' }, fetchImpl: async () => responseFor(200, REPLY) })
   const appended = []
   const exec = { agent: { session: { id: 'sess-1', append: (type, data) => appended.push({ type, data }) } } }
-  await harness.toolDefs[0].execute(ARGS, exec)
-  assert.equal(appended.length, 1)
-  assert.equal(appended[0].type, 'jev/usage')
-  assert.equal(appended[0].data.sessionId, 'sess-1')
-  assert.equal(appended[0].data.inputTokens, 453)
+  const value = await harness.toolDefs[0].execute(ARGS, exec)
+  assert.equal(appended.length, 0, 'the tool must not append custom session events (the reader refuses unknown types)')
+  const meta = harness.toolDefs[0].output.presentationMeta(ARGS, value)
+  assert.deepEqual(meta, { jevUsage: { model: 'jev-1.13.0', inputTokens: 453, outputTokens: 73, costUsd: value.costUsd, sessionId: null, at: meta.jevUsage.at } })
+  const folded = makeHarness({ stored: { typesafe: 'k' }, fetchImpl: async () => responseFor(200, REPLY) }).projections[0].apply(undefined, { type: 'tool/result', time: 1, data: { meta } })
+  assert.equal(folded.calls, 1)
+  assert.equal(folded.inputTokens, 453)
   const snapshot = harness.store.snapshot()
   assert.equal(snapshot.totals.calls, 1)
   assert.equal(snapshot.totals.inputTokens, 453)
