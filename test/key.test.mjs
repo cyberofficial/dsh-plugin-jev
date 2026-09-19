@@ -62,6 +62,8 @@ function makeHarness(options = {}) {
   const routes = new Map()
   const webServer = { register: (definition) => { routes.set(definition.path, definition); return () => {} } }
   const launch = { get: (name) => (options.env && options.env[name] != null ? { value: options.env[name] } : undefined) }
+  const sections = []
+  const toolDefs = []
   const ctx = {
     get(key) {
       if (key === 'credentials') return credentials
@@ -72,9 +74,11 @@ function makeHarness(options = {}) {
     logger: { warn() {}, info() {}, error() {} },
     effect(fn) { fn() },
     webServer,
+    systemPrompt: { section: (section) => { sections.push(section); return () => {} } },
+    tools: { register: (definition) => { toolDefs.push(definition); return () => {} } },
   }
   apply(ctx, { baseURL: 'https://api.typesafe.ai/v1', fetchImpl: options.fetchImpl, cacheMs: Number.isFinite(options.cacheMs) ? options.cacheMs : 0 })
-  return { routes, calls, stored }
+  return { routes, calls, stored, sections, toolDefs }
 }
 
 async function invoke(harness, path, req) {

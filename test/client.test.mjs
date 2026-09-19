@@ -1,7 +1,11 @@
 /**
  * Client-half checks for dsh-plugin-jev: drives the real bundle through the
  * same window.__ModuleLoader__.load factory the web shell uses, then asserts the
- * contributions and pure form helpers directly — no renderer needed.
+ * contribution directly — no renderer needed.
+ *
+ * The plugin is agent-facing, so the only browser contribution is the Settings
+ * plugins tab (the API key + catalog); there is deliberately no composer-dock
+ * pill under the chat.
  *
  * Usage: node test/client.test.mjs
  */
@@ -41,68 +45,36 @@ async function check(label, fn) {
   catch (error) { failures += 1; console.log('  FAIL ' + label + '\n       ' + (error.stack ?? error.message)) }
 }
 
-await check('apply registers the dock console and the Settings plugins tab', () => {
-  const registrations = []
+await check('apply registers the Settings plugins tab and no composer dock', () => {
+  const seen = []
   const ctx = {
     effect: (fn) => fn(),
     slots: {
       inject: (name, contribute) => { contribute(); return () => {} },
-      register: (options, component) => { registrations.push({ options, component }); return () => {} },
+      register: (options, component) => { seen.push({ options, component }); return () => {} },
     },
   }
   api.apply(ctx)
-  const dock = registrations.find((entry) => entry.options.name === 'conversation.composer.dock')
-  const tab = registrations.find((entry) => entry.options.name === 'settings.plugins.tab')
-  assert.ok(dock, 'dock entry registered')
-  assert.equal(dock.options.id, 'jev')
-  assert.equal(typeof dock.component, 'function')
-  assert.ok(tab, 'settings tab registered')
+  assert.equal(seen.length, 1, 'exactly one slot contribution')
+  const tab = seen[0]
+  assert.equal(tab.options.name, 'settings.plugins.tab')
+  assert.equal(tab.options.id, 'jev')
+  assert.equal(tab.options.order, 40)
   assert.equal(tab.options.label, 'Jev (TypeSafe)')
   assert.equal(typeof tab.component, 'function')
+  assert.equal(seen.find((entry) => entry.options.name === 'conversation.composer.dock'), undefined)
 })
 
-await check('questionsFromForm maps the default rows to the API shape', () => {
-  const { questions } = api.questionsFromForm(api.defaultRows())
-  assert.deepEqual(Object.keys(questions), ['is_urgent', 'topic', 'tone'])
-  assert.equal(questions.is_urgent.type, 'noul')
-  assert.deepEqual(questions.is_urgent.criteria, { true: 'Explicitly time-sensitive', false: 'No urgency expressed' })
-  assert.deepEqual(questions.topic.criteria, { billing: 'payments, refunds, invoices', technical: 'bugs, outages, integrations', other: null })
-  assert.deepEqual(questions.tone.criteria, ['Neutral', 'Mildly negative', 'Strongly negative'])
+await check('the bundle source contains no composer dock wiring', () => {
+  const source = readFileSync(bundlePath, 'utf8')
+  assert.doesNotMatch(source, /conversation\.composer\.dock/)
+  assert.doesNotMatch(source, /JevDock/)
+  assert.doesNotMatch(source, /dsh-client-ui-conversation/)
 })
 
-await check('questionsFromForm rejects malformed rows', () => {
-  const base = () => [{ uid: 1, id: 'a', type: 'noul', instructions: 'x?' }]
-  assert.throws(() => api.questionsFromForm([]), /at least one question/)
-  assert.throws(() => api.questionsFromForm([{ uid: 1, id: '', type: 'noul', instructions: 'x?' }]), /needs an id/)
-  assert.throws(() => api.questionsFromForm([{ uid: 1, id: 'a', type: 'noul', instructions: '  ' }]), /needs instructions/)
-  assert.throws(() => api.questionsFromForm(base().concat([{ uid: 2, id: 'a', type: 'noul', instructions: 'y?' }])), /duplicate question id/)
-  assert.throws(() => api.questionsFromForm([{ uid: 1, id: 'a', type: 'choice', instructions: 'x?', options: [{ key: '', desc: '' }] }]), /at least one option/)
-  assert.throws(() => api.questionsFromForm([{ uid: 1, id: 'a', type: 'score', instructions: 'x?', levels: ['one'] }]), /at least two/)
-})
-
-await check('presets expand into complete rows', () => {
-  assert.equal(api.PRESETS.length, 3)
-  const rows = api.presetRows(api.PRESETS[0])
-  assert.equal(rows.length, 3)
-  assert.ok(rows.every((row) => Number.isFinite(row.uid)))
-  const { questions } = api.questionsFromForm(rows)
-  assert.equal(questions.topic.type, 'choice')
-  assert.equal(questions.tone.type, 'score')
-})
-
-await check('formatting helpers read correctly', () => {
-  assert.equal(api.estimateTokens('abcd'), 1)
-  assert.equal(api.estimateTokens(''), 0)
-  assert.equal(api.formatTokens(312), '312')
-  assert.equal(api.formatTokens(12400), '12.4k')
-  assert.equal(api.formatPercent(0.92), '92%')
-  assert.equal(api.formatPercent(0.159), '16%')
-  assert.equal(api.formatCost(0), '$0')
-  assert.ok(api.formatCost(312 * 4.2e-8).startsWith('$0.00001'))
-  assert.equal(api.formatCost(NaN), '—')
-})
-
-await check('model fallback aliases are present', () => {
+await check('the settings surface is exported', () => {
+  assert.equal(typeof api.JevSettingsTab, 'function')
+  assert.equal(typeof api.KeyMenu, 'function')
   assert.deepEqual(api.MODEL_FALLBACK, ['jev-latest', 'jev-preview', 'jev-1.13.0'])
 })
 

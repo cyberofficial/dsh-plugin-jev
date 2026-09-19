@@ -1,8 +1,9 @@
 # Profile patch layer shipped by dsh-plugin-jev itself: installing this package
 # as a profile dependency (it declares `dsh.bundle`) appends this layer
-# automatically, so the single row below mounts both halves — the host routes
-# under /plugins/dsh-plugin-jev/api/..., and the browser half's Jev
-# composer-dock console plus the Settings -> Plugins "Jev (TypeSafe)" tab.
+# automatically, so the single row below mounts both halves — the host half,
+# which registers the agent-facing jev_ask tool plus the /plugins/dsh-plugin-jev/
+# api/... routes, and the browser half's Settings -> Plugins "Jev (TypeSafe)"
+# tab that owns the API key. There is no composer-dock pill.
 #
 # The owner plugin name is the package name so the client module host pairs the
 # row with this package's `dsh.client` browser bundle.

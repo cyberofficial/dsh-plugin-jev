@@ -2,7 +2,7 @@
   "name": "dsh-plugin-jev",
   "version": "0.1.0",
   "private": true,
-  "description": "TypeSafe Jev (System One) in the DSH Web GUI — ask typed Choice/Score/Noul questions from the composer dock and manage the TypeSafe API key from Settings",
+  "description": "Agent-facing TypeSafe Jev (System One) for DSH — a jev_ask tool the model calls for calibrated judgment, plus a Settings tab for the TypeSafe API key",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -22,7 +22,7 @@
   "scripts": {
     "build": "node scripts/build-client.mjs",
     "check:build": "node scripts/build-client.mjs --check",
-    "test": "npm run check:build && node test/host.test.mjs && node test/key.test.mjs && node test/client.test.mjs",
+    "test": "npm run check:build && node test/host.test.mjs && node test/tool.test.mjs && node test/key.test.mjs && node test/client.test.mjs",
     "check": "npm pack --dry-run"
   },
   "dsh": {
@@ -32,7 +32,6 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-settings-plugins"
       ]
     }
