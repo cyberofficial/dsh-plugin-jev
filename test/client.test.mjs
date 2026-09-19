@@ -29,7 +29,7 @@ globalThis.document = {
   removeEventListener: () => {},
 }
 
-const React = () => {}
+const React = { createElement: (type, props, ...children) => ({ type, props, children }) }
 ;(0, eval)(readFileSync(bundlePath, 'utf8'))
 
 assert.equal(registrations.length, 1, 'bundle must register exactly one __ModuleLoader__ record')
@@ -73,15 +73,19 @@ await check('the bundle carries no query-console wiring', () => {
   assert.doesNotMatch(source, /questionsFromForm|PRESETS|dshJevModal|dshJevAnswer/)
 })
 
-await check('the stats chip label is pure and total-aware', () => {
-  assert.equal(api.formatJevStats({ calls: 0, costUsd: 0 }), null)
-  assert.equal(api.formatJevStats(null), null)
+await check('the stats chip label is pure, total-aware, and never empty', () => {
+  assert.equal(api.formatJevStats({ calls: 0, costUsd: 0 }), 'Jev · 0 calls · $0')
+  assert.equal(api.formatJevStats(null), 'Jev · 0 calls · $0')
   assert.equal(api.formatJevStats({ calls: 1, costUsd: 0.000019 }), 'Jev · 1 call · $0.000019')
   assert.equal(api.formatJevStats({ calls: 4, costUsd: 0.5 }), 'Jev · 4 calls · $0.5000')
 })
 
-await check('the dock chip renders nothing without a projection value', () => {
-  assert.equal(api.JevStatsPill({ useProjection: () => undefined }), null)
+await check('the dock chip always renders, even with no calls', () => {
+  const empty = api.JevStatsPill({ useProjection: () => undefined })
+  assert.ok(empty, 'chip renders before any call')
+  assert.equal(empty.type, 'div')
+  const withCalls = api.JevStatsPill({ useProjection: () => ({ calls: 2, costUsd: 0.0000315 }) })
+  assert.ok(withCalls)
   assert.equal(api.JEV_USAGE_KEY, 'jevUsage')
 })
 

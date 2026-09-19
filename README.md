@@ -28,8 +28,9 @@ its own — there is **no human query console**.
   envelope, and fold a session log into text for use as state. The API key never
   reaches the browser.
 - **Client half** (`lib/client.js`, built from `src/client.template.js`):
-  - a read-only **per-chat stats chip** in `conversation.composer.dock` showing
-    how many times Jev ran in this chat and what it cost, and
+  - an always-visible read-only **per-chat stats chip** in
+    `conversation.composer.dock` showing how many times Jev ran in this chat and
+    what it cost, and
   - a `Jev (TypeSafe)` tab in `settings.plugins.tab` with the key, the default
     model, overall usage totals, and the catalog the key can see.
 
@@ -110,8 +111,8 @@ falls back to the known aliases `jev-latest`, `jev-preview`, `jev-1.13.0`.
 
 - **Per chat** — the composer-dock chip reads the `jevUsage` session projection:
   `Jev · 3 calls · $0.00006`. It is derived from that session's own log, so it
-  is exact for the chat and travels with the session; a chat with no calls shows
-  nothing.
+  is exact for the chat and travels with the session. It always renders; a chat
+  with no calls shows `Jev · 0 calls · $0`.
 - **Overall** — the Settings tab shows total calls, input/output tokens, and
   estimated cost, plus a per-model breakdown and the last call. These come from
   `GET /stats`, backed by the aggregate at

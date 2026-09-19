@@ -47,6 +47,7 @@ window.__ModuleLoader__.load({
       '.dshJevKey input{flex:1;min-width:200px;background:var(--dsw-alias-input-bg,#12151e);border:.5px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:5px 8px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}',
       '.dshJevStats{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;padding:1px 9px;color:var(--dsw-alias-label-caption);font-size:11px;font-variant-numeric:tabular-nums;background:0 0}',
       '.dshJevStatsName{color:var(--dsw-alias-label-secondary);font-weight:600}',
+      '.dshJevStats[data-empty=true]{opacity:.6}',
       '.dshJevStatsSep{color:var(--dsw-alias-separator-primary)}',
       '.dshJevDock{display:flex;justify-content:center;width:100%;order:30;padding:0 0 4px}',
       '.dshJevStatGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px}',
@@ -95,8 +96,9 @@ window.__ModuleLoader__.load({
      * nothing. Pure, so the tests can assert it without a renderer.
      */
     function formatJevStats(usage) {
-      if (usage === null || typeof usage !== 'object' || !Number.isFinite(usage.calls) || usage.calls <= 0) return null
-      return 'Jev · ' + (usage.calls === 1 ? '1 call' : usage.calls + ' calls') + ' · ' + formatCost(usage.costUsd)
+      const calls = usage !== null && typeof usage === 'object' && Number.isFinite(usage.calls) && usage.calls > 0 ? usage.calls : 0
+      const cost = usage !== null && typeof usage === 'object' && Number.isFinite(usage.costUsd) ? usage.costUsd : 0
+      return 'Jev · ' + (calls === 1 ? '1 call' : calls + ' calls') + ' · ' + formatCost(cost)
     }
 
     async function readJson(url, options) {
@@ -162,22 +164,27 @@ window.__ModuleLoader__.load({
 
     /**
      * The read-only composer-dock chip: how many times Jev ran in this chat and
-     * what it cost. The value arrives through the host's jevUsage session
-     * projection; a session with no calls renders nothing.
+     * what it cost. Always renders — a chat with no calls shows "0 calls · $0" so
+     * the meter is discoverable before the first call. The value arrives through
+     * the host's jevUsage session projection.
      * @param props - the dock's session seat (the projection reader).
      */
     function JevStatsPill(props) {
       const useProjection = props && props.useProjection
       const usage = typeof useProjection === 'function' ? useProjection(JEV_USAGE_KEY) : undefined
-      const label = formatJevStats(usage)
-      if (label === null) return null
+      const calls = usage !== null && typeof usage === 'object' && Number.isFinite(usage.calls) && usage.calls > 0 ? usage.calls : 0
+      const cost = usage !== null && typeof usage === 'object' && Number.isFinite(usage.costUsd) ? usage.costUsd : 0
       return React.createElement('div', { className: 'dshJevDock' },
-        React.createElement('span', { className: 'dshJevStats', title: 'Jev calls and estimated cost in this chat' },
+        React.createElement('span', {
+          className: 'dshJevStats',
+          'data-empty': calls === 0 ? 'true' : undefined,
+          title: calls === 0 ? 'Jev has not run in this chat yet' : 'Jev calls and estimated cost in this chat',
+        },
           React.createElement('span', { className: 'dshJevStatsName' }, 'Jev'),
           React.createElement('span', { className: 'dshJevStatsSep' }, '·'),
-          React.createElement('span', null, usage.calls === 1 ? '1 call' : usage.calls + ' calls'),
+          React.createElement('span', null, calls === 1 ? '1 call' : calls + ' calls'),
           React.createElement('span', { className: 'dshJevStatsSep' }, '·'),
-          React.createElement('span', null, formatCost(usage.costUsd)),
+          React.createElement('span', null, formatCost(cost)),
         ),
       )
     }
