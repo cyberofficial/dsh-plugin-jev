@@ -1,0 +1,40 @@
+{
+  "name": "dsh-plugin-jev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeSafe Jev (System One) in the DSH Web GUI — ask typed Choice/Score/Noul questions from the composer dock and manage the TypeSafe API key from Settings",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "check:build": "node scripts/build-client.mjs --check",
+    "test": "npm run check:build && node test/host.test.mjs && node test/key.test.mjs && node test/client.test.mjs",
+    "check": "npm pack --dry-run"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
+      ]
+    }
+  }
+}
