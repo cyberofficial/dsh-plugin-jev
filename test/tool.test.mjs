@@ -190,6 +190,32 @@ await check('execute writes no custom session event; usage rides tool/result met
   assert.equal(snapshot.byModel['jev-1.13.0'].calls, 1)
 })
 
+await check('the fold reads usage out of a rendered result (nested dispatches land no meta)', async () => {
+  const harness = makeHarness({ stored: { typesafe: 'k' }, fetchImpl: async () => responseFor(200, REPLY) })
+  const tool = harness.toolDefs[0]
+  const value = await tool.execute(ARGS)
+  const text = tool.output.render(ARGS, value)[0].text
+  const event = { type: 'tool/result', time: 1700000000000, data: { message: { content: [{ type: 'tool-result', content: [{ type: 'text', text }] }] } } }
+  const folded = harness.projections[0].apply(harness.projections[0].init(), event)
+  assert.equal(folded.calls, 1)
+  assert.equal(folded.inputTokens, 453)
+  assert.equal(folded.outputTokens, 73)
+  assert.equal(folded.byModel['jev-1.13.0'].calls, 1)
+  assert.ok(folded.lastAt)
+})
+
+await check('the fold refuses results that merely echo a Jev render', async () => {
+  const harness = makeHarness({ stored: { typesafe: 'k' }, fetchImpl: async () => responseFor(200, REPLY) })
+  const tool = harness.toolDefs[0]
+  const text = tool.output.render(ARGS, await tool.execute(ARGS))[0].text
+  const apply = harness.projections[0].apply
+  const init = harness.projections[0].init()
+  const wrap = (part) => ({ type: 'tool/result', time: 1, data: { message: { content: [{ type: 'tool-result', content: [{ type: 'text', text: part }] }] } } })
+  assert.equal(apply(init, wrap('output was: ' + JSON.stringify(text))), init, 'JSON-quoted echo must not count')
+  assert.equal(apply(init, wrap(text + '\ntrailing remark')), init, 'trailing text must not count')
+  assert.equal(apply(init, wrap(text.slice(text.indexOf('\n') + 1))), init, 'missing header must not count')
+})
+
 await check('the stored model is the default when args.model is absent', async () => {
   const seen = []
   const store = new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-tool-')), 'state.json'))

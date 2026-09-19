@@ -19,7 +19,7 @@ its own — there is **no human query console**.
   - a system-prompt guidance section (`tool:jev_ask`) that tells the model to
     use Jev for judgment under uncertainty instead of guessing.
 - **Usage accounting** (`lib/usage.js` + `lib/store.js`):
-  - every successful call projects its usage onto the `tool/result` event's `meta` (a known event type — no custom session event, which the harness's log reader would refuse),
+  - every successful call records its usage on the `tool/result` event — via `meta` for root calls, and readable from the result's rendered text for nested ones (no custom session event, which the harness's log reader would refuse),
     folded by the `jevUsage` session projection and shipped to the browser; and
   - the same call updates a small JSON aggregate under the DSH home for the
     Settings totals.
