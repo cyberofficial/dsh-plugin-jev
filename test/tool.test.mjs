@@ -69,7 +69,8 @@ await check('mounting registers one jev_ask tool and its guidance section', () =
   assert.equal(harness.sections.length, 1)
   assert.equal(harness.sections[0].name, 'tool:' + JEV_TOOL_NAME)
   assert.equal(harness.sections[0].order, JEV_TOOL_PROMPT_ORDER)
-  assert.match(harness.sections[0].text, /call jev_ask before guessing/)
+  assert.match(harness.sections[0].text, /default to calling jev_ask/)
+  assert.match(harness.sections[0].text, /MAJORITY of substantive user questions/)
 })
 
 await check('execute validates, calls /systemone with the key, and omits the credential', async () => {
@@ -131,7 +132,7 @@ await check('toolEnabled:false mounts no agent surface; toolName renames it', ()
   const named = makeHarness({ stored: { typesafe: 'k' }, config: { toolName: 'jev' }, fetchImpl: async () => responseFor(200, REPLY) })
   assert.equal(named.toolDefs[0].name, 'jev')
   assert.equal(named.sections[0].name, 'tool:jev')
-  assert.match(named.sections[0].text, /call jev before guessing/)
+  assert.match(named.sections[0].text, /default to calling jev\b/)
 })
 
 await check('formatters tolerate sparse answers', () => {

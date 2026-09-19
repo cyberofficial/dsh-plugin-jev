@@ -75,12 +75,17 @@ answers carry the full `probabilities` distribution and a `confidence`; noul
 answers carry the yes-probability. The tool renders those as compact probability
 lines so the model can cite the number it acted on.
 
-The guidance section directs the model to call `jev_ask` for judgments it cannot
-verify from the workspace — which of several valid options to take, risk / urgency
-/ confidence, classification or prioritization, likely user reaction — and not
-for work it can settle directly (reading code, running tests, fetching a URL). If
-no key is configured the tool fails with a message telling the user where to set
-one, and the model continues without it.
+The guidance section makes Jev the **default for the majority of substantive
+questions**: anything involving judgment, preference, ranking, prediction,
+classification, prioritization, risk / urgency / likelihood, sentiment, or a
+trade-off between options — including soft phrasings such as "what do you
+think", "which should I", or "is this a good idea" — plus implied decisions
+inside a task. The model is told to decompose a question into several typed
+questions and ask them in one call. Only work the model can verify or execute
+itself (reading code or files, running tests, fetching a URL), content it is
+authoring, and deterministic computation are excluded. If no key is configured
+the tool fails with a message telling the user where to set one, and the model
+continues without it.
 
 Disable the agent surface (routes only) with plugin config `toolEnabled: false`;
 rename the tool with `toolName: "jev"`.
