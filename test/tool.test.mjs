@@ -79,6 +79,10 @@ await check('mounting registers one jev_ask tool and its guidance section', () =
   assert.equal(harness.sections[0].order, JEV_TOOL_PROMPT_ORDER)
   assert.match(harness.sections[0].text, /default to calling jev_ask/)
   assert.match(harness.sections[0].text, /MAJORITY of substantive user questions/)
+  assert.match(harness.sections[0].text, /Use confidence as a second decision axis/)
+  assert.match(harness.sections[0].text, /below 0\.7/)
+  assert.match(harness.sections[0].text, /Default to Speculative Fan-Out/)
+  assert.match(harness.sections[0].text, /Decompose complex problems/)
 })
 
 await check('execute validates, calls /systemone with the key, and omits the credential', async () => {

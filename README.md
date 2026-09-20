@@ -97,6 +97,22 @@ authoring, and deterministic computation are excluded. If no key is configured
 the tool fails with a message telling the user where to set one, and the model
 continues without it.
 
+The guidance also instills the TypeSafe patterns directly:
+
+- **Confidence as a second decision axis** — when an answer's confidence is low
+  (below ~0.7), the model tells you it is unsure, asks for clarification, or
+  flags for human review rather than guessing: the answer says *what*,
+  confidence says *whether to act*.
+- **Speculative fan-out** — ask several related questions in one call (e.g. rank
+  options *and* their likelihoods together) instead of one high-effort question,
+  which costs one call instead of many.
+- **Decomposition** — when a judgment weighs several independent factors, break
+  it into narrow per-factor questions and compose the results with your own
+  reasoning. The tool returns typed values, not prose, so the model can branch,
+  sort, and route on them.
+- **Explicit types** — questions are always one of `noul`, `choice`, or `score`,
+  each with concrete criteria, so Jev always returns calibrated probabilities.
+
 Disable the agent surface (routes only) with plugin config `toolEnabled: false`;
 rename the tool with `toolName: "jev"`.
 
