@@ -190,3 +190,8 @@ Run the checks with `npm test`; `npm run check` does a `npm pack --dry-run`.
 - English is Jev's strongest language; test other languages on your own content.
 - Confidence is derived from the probability distribution. Use it as a second
   axis: the answer says what, confidence says whether to act.
+
+## License
+
+MIT — do whatever you like with it; no warranty, no liability. See the
+[MIT license text](https://opensource.org/licenses/MIT).
