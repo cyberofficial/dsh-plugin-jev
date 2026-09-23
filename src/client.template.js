@@ -333,6 +333,13 @@ window.__ModuleLoader__.load({
       const modelOptions = catalogNames.length > 0 ? catalogNames : MODEL_FALLBACK
       const totals = stats && stats.totals ? stats.totals : null
       const byModel = stats && stats.byModel ? Object.keys(stats.byModel).map((name) => Object.assign({ name }, stats.byModel[name])).sort((a, b) => (b.calls || 0) - (a.calls || 0)) : []
+      const sourceUsage = stats && stats.bySource ? stats.bySource : null
+      const bySource = sourceUsage
+        ? [
+            { key: 'tool', label: 'From the model (jev_ask)', usage: sourceUsage.tool || { calls: 0, inputTokens: 0, costUsd: 0 } },
+            { key: 'host', label: 'From plugins (host service)', usage: sourceUsage.host || { calls: 0, inputTokens: 0, costUsd: 0 } },
+          ].filter((entry) => (entry.usage.calls || 0) > 0)
+        : []
 
       return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 10, padding: '4px 2px' } },
         React.createElement('div', { className: 'dshJevSection' },
@@ -374,6 +381,12 @@ window.__ModuleLoader__.load({
           React.createElement('div', { className: 'dshJevHint' },
             (stats ? stats.sessionsTracked : 0) + ' chat session(s) billed' +
             (stats && stats.lastCall ? '. Last: ' + stats.lastCall.model + ' at ' + stats.lastCall.at : '.')),
+          bySource.length > 0
+            ? React.createElement('ul', { className: 'dshJevModelList' }, bySource.map((entry) => React.createElement('li', { className: 'dshJevModel', key: entry.key },
+                React.createElement('b', null, entry.label),
+                React.createElement('span', null, entry.usage.calls + ' call(s) · ' + formatTokens(entry.usage.inputTokens) + ' in · ' + formatCost(entry.usage.costUsd)),
+              )))
+            : null,
           byModel.length > 0
             ? React.createElement('ul', { className: 'dshJevModelList' }, byModel.slice(0, 5).map((entry) => React.createElement('li', { className: 'dshJevModel', key: entry.name },
                 React.createElement('b', null, entry.name),
@@ -398,7 +411,7 @@ window.__ModuleLoader__.load({
         React.createElement('div', { className: 'dshJevSection' },
           React.createElement('h4', null, 'How the numbers are made'),
           React.createElement('div', { className: 'dshJevHint' },
-            'Cost is computed from the usage the API returns: input tokens at the published $0.042 per million (output tokens are free). It is a metered estimate, not a billing statement. The chat chip reads the jevUsage session projection, so it is exact for this chat and travels with the session.'),
+            'Cost is computed from the usage the API returns: input tokens at the published $0.042 per million (output tokens are free). It is a metered estimate, not a billing statement. The chat chip reads the jevUsage session projection, so it counts the model\u0027s jev_ask calls and travels with the session. Calls a sibling plugin makes through the host service are counted here in the totals but cannot reach that chip, which is why they are listed separately above.'),
         ),
         error ? React.createElement('div', { className: 'dshJevErr' }, error) : null,
         notice ? React.createElement('div', { className: 'dshJevOk' }, notice) : null,

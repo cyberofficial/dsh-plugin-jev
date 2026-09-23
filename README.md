@@ -18,11 +18,16 @@ its own — there is **no human query console**.
     agent and every subagent that inherits its surface;
   - a system-prompt guidance section (`tool:jev_ask`) that tells the model to
     use Jev for judgment under uncertainty instead of guessing.
+- **Host service** (`lib/service.js`): the same validated call exposed to
+  sibling plugins as `ctx.get('jev')`, so a plugin can get a calibrated
+  judgment without spending a main-model round trip. See
+  [Host service](#host-service).
 - **Usage accounting** (`lib/usage.js` + `lib/store.js`):
   - every successful call records its usage on the `tool/result` event — via `meta` for root calls, and readable from the result's rendered text for nested ones (no custom session event, which the harness's log reader would refuse),
     folded by the `jevUsage` session projection and shipped to the browser; and
   - the same call updates a small JSON aggregate under the DSH home for the
-    Settings totals.
+    Settings totals, split by whether the model (`tool`) or a plugin (`host`)
+    made the call.
 - **Host routes** under `/plugins/dsh-plugin-jev/api/...`: validate the request,
   call `api.typesafe.ai/v1` with the stored credential, normalize the answer
   envelope, and fold a session log into text for use as state. The API key never
@@ -33,6 +38,58 @@ its own — there is **no human query console**.
     what it cost, and
   - a `Jev (TypeSafe)` tab in `settings.plugins.tab` with the key, the default
     model, overall usage totals, and the catalog the key can see.
+
+## Host service
+
+`jev_ask` is reachable only by the model, so any other plugin wanting a judgment
+had to spend a main-model round trip asking for prose and parsing it back. The
+host service removes that step:
+
+```js
+export const inject = ['jev']
+
+export function apply(ctx) {
+  ctx.on('agent/turn-stopping', async () => {
+    const jev = ctx.get('jev')
+    const { answers } = await jev.ask({
+      state: describeRecentSteps(),
+      questions: {
+        complete: { type: 'noul', instructions: 'Is the stated objective fully met?' },
+        drifting: { type: 'noul', instructions: 'Has the work drifted from the objective?' },
+      },
+    })
+    // answers.complete.noul is a calibrated probability; your code owns the threshold.
+  })
+}
+```
+
+`ask({ state, questions, model? })` returns
+`{ model, answers, usage, costUsd, elapsedMs, credential }` and throws a
+`TypeError`/`RangeError` on malformed input (before any network work) or an
+error with `.code === 'no-key'` when no credential is configured. The same
+limits the routes enforce apply: 64 questions, a bounded state.
+
+**This module supplies calibrated numbers, not policy.** It has no opinion about
+what a probability should mean for your feature. A consumer decides its own
+question shapes, its own thresholds, and — if it gates agent behaviour — should
+fail **open** on any error, so a broken Jev call can never strand or prematurely
+end work.
+
+### Where host calls are counted
+
+Host calls land in the persisted aggregate and in the Settings totals under a
+`host` bucket, and the Settings tab shows the split between `tool` (the model's
+`jev_ask` calls) and `host` (plugin calls). They **cannot** appear in the
+per-chat chip: that chip reads the `jevUsage` session projection, whose only
+source is `tool/result` meta, and an out-of-tree plugin cannot append a session
+event of its own — the envelope's `ignorable` marker is not settable through
+`Session.append`, so a custom event type would make the log unreadable. The
+split exists so that gap is visible rather than hidden in one number.
+
+Security note: the resolved credential is attached only to the upstream
+`Authorization` header. It is never part of the value the service returns, so a
+caller cannot log it by accident.
+
 
 ## Installing
 
@@ -128,9 +185,11 @@ falls back to the known aliases `jev-latest`, `jev-preview`, `jev-1.13.0`.
 - **Per chat** — the composer-dock chip reads the `jevUsage` session projection:
   `Jev · 3 calls · $0.00006`. It is derived from that session's own log, so it
   is exact for the chat and travels with the session. It always renders; a chat
-  with no calls shows `Jev · 0 calls · $0`.
+  with no calls shows `Jev · 0 calls · $0`. It counts the **model's** `jev_ask`
+  calls only; a plugin calling the host service is counted below instead.
 - **Overall** — the Settings tab shows total calls, input/output tokens, and
-  estimated cost, plus a per-model breakdown and the last call. These come from
+  estimated cost, a `tool`/`host` split of where those calls came from, plus a
+  per-model breakdown and the last call. These come from
   `GET /stats`, backed by the aggregate at
   `$DSH_HOME/dsh-plugin-jev.json` (default `~/.dsh/dsh-plugin-jev.json`), so
   they survive restarts. The file never contains the API key.
@@ -162,17 +221,20 @@ the cap.
 ## Development layout
 
 - `lib/index.js` — the host half (Cordis plugin; routes, credential, folds)
+- `lib/service.js` — the host-side `ctx.get('jev')` service sibling plugins call
 - `lib/tool.js` — the agent tool, guidance text, and model-facing formatters
 - `lib/usage.js` — the per-session usage fold (from `tool/result` meta), the `jevUsage` projection, and
   the stats formatting
-- `lib/store.js` — the persisted model choice + overall aggregate
+- `lib/store.js` — the persisted model choice + overall aggregate (with the
+  `tool`/`host` split)
 - `src/client.template.js` — the browser half source
 - `lib/client.js` — generated browser bundle (`npm run build`)
 - `scripts/build-client.mjs` — copies the template to the served path
   (`npm run check:build` verifies it is current)
-- `test/` — `host.test.mjs` (pure helpers), `tool.test.mjs` (the agent tool,
-  the projection, and usage recording), `key.test.mjs` (routes with a canned
-  fetch), `client.test.mjs` (drives the real bundle factory)
+- `test/` — `host.test.mjs` (pure helpers + the store split), `tool.test.mjs`
+  (the agent tool, the projection, and usage recording), `service.test.mjs` (the
+  host service), `key.test.mjs` (routes with a canned fetch),
+  `client.test.mjs` (drives the real bundle factory)
 
 Run the checks with `npm test`; `npm run check` does a `npm pack --dry-run`.
 

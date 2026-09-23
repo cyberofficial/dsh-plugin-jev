@@ -20,6 +20,10 @@ import {
   DEFAULT_MODEL,
   DEFAULT_COST_PER_TOKEN,
 } from '../lib/index.js'
+import { JevStore, normalizeState as normalizeStoreState, emptyUsage } from '../lib/store.js'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 let failures = 0
 async function check(label, fn) {
@@ -187,6 +191,35 @@ await check('parseRetryAfter reads seconds and dates', () => {
   const soon = new Date(Date.now() + 5000).toUTCString()
   const parsed = parseRetryAfter(soon)
   assert.ok(parsed !== null && parsed > 3000 && parsed <= 5000)
+})
+
+await check('the store keeps a tool/host source split and reads older files', () => {
+  const store = new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-host-')), 'state.json'))
+  assert.deepEqual(store.snapshot().bySource, {
+    tool: { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+    host: { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+  })
+  store.record({ model: 'm', inputTokens: 10, outputTokens: 2, costUsd: 0.1, source: 'tool' })
+  store.record({ model: 'm', inputTokens: 5, outputTokens: 1, costUsd: 0.2, source: 'host' })
+  const snapshot = store.snapshot()
+  assert.equal(snapshot.bySource.tool.calls, 1)
+  assert.equal(snapshot.bySource.host.calls, 1)
+  assert.equal(snapshot.bySource.tool.inputTokens, 10)
+  assert.equal(snapshot.bySource.host.inputTokens, 5)
+  assert.equal(snapshot.totals.calls, 2, 'totals still count every call')
+  assert.equal(snapshot.lastCall.source, 'host')
+
+  // A file written before the split has no bySource: those calls were all
+  // model-driven, so they must reconstruct into the tool bucket rather than
+  // vanish or inflate the host count.
+  const legacy = normalizeStoreState({ totals: { calls: 3, inputTokens: 30, outputTokens: 3, costUsd: 0.3 }, byModel: {}, sessions: {} })
+  assert.equal(legacy.bySource.tool.calls, 0, 'normalizeState does not invent per-source history')
+  assert.equal(legacy.bySource.host.calls, 0)
+  // An unknown source marker is coerced, never dropped silently into a new key.
+  const coerced = normalizeStoreState({ totals: emptyUsage(), bySource: { bogus: { calls: 9 } } })
+  assert.equal(coerced.bySource.tool.calls, 0)
+  assert.equal(coerced.bySource.host.calls, 0)
+  assert.equal('bogus' in coerced.bySource, false)
 })
 
 await check('resolveApiKey prefers the credential service over the environment', async () => {

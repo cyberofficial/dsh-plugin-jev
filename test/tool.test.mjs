@@ -49,6 +49,7 @@ function makeHarness(options = {}) {
     },
     logger: { warn() {}, info() {}, error() {} },
     effect(fn) { fn() },
+    provide: () => () => {},
     webServer: { register: () => () => {} },
     systemPrompt: { section: (section) => { sections.push(section); return () => {} } },
     tools: { register: (definition) => { toolDefs.push(definition); return () => {} } },
