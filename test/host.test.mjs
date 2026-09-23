@@ -112,8 +112,16 @@ await check('foldTranscript renders the recent conversation with tools', () => {
     { type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: 'My payouts fail.' }], source: { kind: 'user' } } },
     { type: 'assistant/message', data: { message: { content: [{ type: 'reasoning', text: 'hidden' }, { type: 'text', text: 'Let me check.' }] } } },
     { type: 'tool/call', data: { name: 'lookup', arguments: '{"id":7}' } },
-    { type: 'tool/result', data: { message: { content: [{ type: 'tool-result', content: [{ type: 'text', text: 'payout 7 failed' }] }] } } },
-    { type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: 'please fix it fast' }], source: { kind: 'plugin', plugin: 'x' } } },
+    // Session format v4 flattened tool results: the result's own blocks sit
+    // directly under `message.content`, and failure rides `message.isError`.
+    { type: 'tool/result', data: { message: { role: 'tool', isError: false, content: [{ type: 'text', text: 'payout 7 failed' }] } } },
+    { type: 'tool/result', data: { message: { role: 'tool', isError: true, content: [{ type: 'text', text: 'connection refused' }] } } },
+    // Injected context, in the kinds session format v4 actually writes. The
+    // pre-v4 catch-all `{ kind: 'plugin', plugin }` was rewritten away by the
+    // v3->v4 migration, so `!== 'user'` is the discriminator that holds.
+    { type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: 'please fix it fast' }], source: { kind: 'runtime-context' } } },
+    { type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: 'AGENTS.md changed' }], source: { kind: 'agent-instructions', changes: [{ path: 'AGENTS.md' }] } } },
+    { type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: 'third-party plugin note' }], source: { kind: 'plugin:some-plugin' } } },
   ]
   const folded = foldTranscript(events)
   assert.match(folded.text, /USER: My payouts fail\./)
@@ -121,9 +129,42 @@ await check('foldTranscript renders the recent conversation with tools', () => {
   assert.doesNotMatch(folded.text, /hidden/)
   assert.match(folded.text, /TOOL CALL lookup/)
   assert.match(folded.text, /TOOL RESULT: payout 7 failed/)
+  assert.match(folded.text, /TOOL ERROR: connection refused/)
   assert.match(folded.text, /CONTEXT: please fix it fast/)
-  assert.equal(folded.messages, 5)
+  assert.match(folded.text, /CONTEXT: AGENTS\.md changed/)
+  assert.match(folded.text, /CONTEXT: third-party plugin note/)
+  // The genuine prompt is the only USER line in the whole transcript.
+  assert.equal(folded.text.match(/USER: /g)?.length, 1)
+  assert.equal(folded.messages, 8)
   assert.equal(folded.omitted, 0)
+})
+
+await check('foldTranscript treats a message with no attributable source as injected', () => {
+  const events = [
+    { type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: 'attributed to nobody' }] } },
+    { type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: 'bad source' }], source: 'nonsense' } },
+  ]
+  const folded = foldTranscript(events)
+  assert.equal(folded.text.match(/CONTEXT: /g)?.length, 2)
+  assert.doesNotMatch(folded.text, /USER: /)
+})
+
+await check('foldTranscript reads the flattened v4 tool-result shape', () => {
+  // The pre-v4 wrapper block (`content: [{ type: 'tool-result', content: [...] }]`)
+  // is gone: a transcript built from it produced an empty TOOL RESULT line and
+  // could never report a tool failure.
+  const legacy = foldTranscript([{ type: 'tool/result', data: { message: { content: [{ type: 'tool-result', content: [{ type: 'text', text: 'lost' }] }] } } }])
+  assert.doesNotMatch(legacy.text, /lost/, 'the retired wrapper block carries no readable text')
+  assert.match(legacy.text, /^TOOL RESULT:$/m)
+
+  const current = foldTranscript([
+    { type: 'tool/result', data: { message: { role: 'tool', isError: false, content: [{ type: 'text', text: 'kept' }] } } },
+    { type: 'tool/result', data: { message: { role: 'tool', isError: true, content: [{ type: 'text', text: 'boom' }] } } },
+    { type: 'tool/result', data: { message: { role: 'tool', isError: false, content: [{ type: 'image', attachment: { id: 'x' } }] } } },
+  ])
+  assert.match(current.text, /TOOL RESULT: kept/)
+  assert.match(current.text, /TOOL ERROR: boom/)
+  assert.match(current.text, /TOOL RESULT: \[image\]/)
 })
 
 await check('foldTranscript bounds message count and total size', () => {
