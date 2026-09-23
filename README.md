@@ -11,6 +11,44 @@ structured answers with calibrated probabilities, evaluated in parallel in one
 call. This plugin makes that decision surface a tool the assistant reaches for on
 its own — there is **no human query console**.
 
+## ⚠️ Read this before enabling the command guard
+
+The command guard judges commands with a **probabilistic language model**. It is
+useful, and it is **not reliable**. It can be wrong in both directions, and both
+directions cost you:
+
+- **It can block something safe.** You will eventually see a legitimate command
+  refused. That is the intended trade when `enforce` is on, not a bug report.
+- **It can allow something dangerous.** This is the failure that matters. A
+  command can be scored `safe`, or matched against no rule, and run. **There is
+  no guarantee that a dangerous command will be caught**, and a clean log is not
+  evidence that nothing harmful happened.
+- **It only sees the command text, the working directory, and the sandbox mode.**
+  It cannot see what a path resolves to, what a variable holds at runtime, what a
+  script does when it runs, or what state your repository is in. `rm -rf $DIR` is
+  judged without knowing `$DIR`.
+- **It cannot be complete.** Every rule is one you wrote; every candidate action
+  is one you supplied. Jev cannot enumerate the ways a command could hurt you, so
+  an empty rule list means the guard is watching for nothing.
+- **It can be argued with.** Command text is untrusted input that may come from a
+  file, a web page, or a tool result, and it becomes part of what the model reads.
+  Layer 1 (substring rules) is not model-mediated and cannot be talked out of a
+  block; the semantic layer can be fooled.
+
+**Treat the guard as defence in depth, never as a security boundary.** The
+sandbox and the approval policy are the boundaries. Do not rely on this plugin to
+make an unsafe setup safe, do not run it as the only control in front of
+something destructive, and do not point it at anything you could not afford to
+lose.
+
+This plugin is provided under the [MIT license](#license) — **as is, without
+warranty of any kind, express or implied**, and with **no liability** on the part
+of the author or copyright holder for any claim, damage, or other liability
+arising from its use. You configure the rules and the thresholds, you choose the
+mode, and **you are responsible for the outcome**. Verify anything this plugin
+tells you before you act on it. If that is not acceptable, do not enable the
+guard.
+
 ## What it adds
 
 - **Host half** (`lib/index.js` + `lib/tool.js`):
@@ -144,6 +182,15 @@ once. Every scored command is a real Jev call and is billed: it lands in its own
 
 - **Jev supplies numbers; the plugin owns the decision.** The deny path is a
   deterministic function of the score and your thresholds.
+- **A command too large to evaluate is refused, not truncated.** Over 20,000
+  characters the guard will not send the command for scoring, because a command
+  it cannot read is a command it cannot clear — "make it too big to score" would
+  otherwise be a trivial way past the guard. Truncating would be worse still: the
+  dangerous part can sit past the cut, and Jev would then be scoring an innocent
+  prefix. It has its own `blockedOversize` counter so it is never confused with a
+  rule match or a score. The bound is conservative against the API's 32k-token
+  budget, so a legitimate script of any realistic size is still judged in full.
+  (With the guard disabled the rail is off too, like everything else.)
 - **Patterns are substrings, not regex.** A pathological regex would stall
   inside the dispatch path and hang every shell command in the session. So
   `git push` also blocks `git push --dry-run` — the Settings field says so right
@@ -155,14 +202,54 @@ once. Every scored command is a real Jev call and is billed: it lands in its own
   always yours, never the command's.
 - **The guard never rewrites a command.** It allows or denies.
 
+### Seeing what was blocked
+
+The **Jev pill** under the composer is clickable. Expanding it lists every
+command the guard actually refused, newest first, with the **full command**
+(never truncated), **when** it happened, and **why** — the matching rule and its
+intent, or the danger severity and confidence that decided it. A count badge
+appears next to the pill label once anything has been blocked.
+
+The pill also carries an all-time **scored** figure — every command the guard
+has sent to Jev, allowed or blocked, across every chat and every restart — read
+from the durable stats when the panel opens and refreshed whenever this chat's
+meter moves. Commands stopped by a literal rule or the oversize rail are
+naturally absent: they never reached Jev and cost nothing.
+
+Two properties are deliberate:
+
+- **Only real refusals are listed.** A `monitor`-mode run and a command the score
+  allowed are not blocks; the counters in Settings cover those. An empty list
+  therefore means nothing was refused, which the panel says outright when the
+  guard is in `monitor`.
+- **Nothing is parsed back out of the session log.** Each entry is recorded
+  structurally at decision time — command, rule, severity, confidence, trigger,
+  cost — because re-deriving structure by parsing the model-facing denial prose
+  is exactly the coupling that broke the per-chat chip silently when session
+  format v4 changed.
+
+The log is bounded (most recent 100) and **in memory only**: it is a "what just
+happened" view and does not survive a restart. It is not written to the session
+log, so it costs no tokens and cannot affect the conversation cache. The
+lifetime **counters are different** — they are persisted with the plugin state
+and keep counting across restarts (see below).
+
+It stays current on its own: **every open re-reads it**, and while it is open it
+re-reads roughly every three seconds so a block made during the turn appears
+without a manual Refresh. Both stop when the log is closed. The durable counters
+ride the same refresh, and are re-read again whenever this chat's meter moves,
+so the all-time figure follows the guard without polling while the pill is
+closed.
+
 ### Routes
 
 | Route | Method | Purpose |
 | --- | --- | --- |
-| `/plugins/dsh-plugin-jev/api/guard` | GET | Guard config, live counters, and the defaults |
+| `/plugins/dsh-plugin-jev/api/guard` | GET | Guard config, lifetime counters, the block log, and the defaults |
 | `/plugins/dsh-plugin-jev/api/guard` | POST | A partial config patch; absent keys are left alone |
 
-`GET /stats` also carries a `guard` counters block.
+`GET /stats` also carries a `guard` counters block, persisted across restarts
+alongside the rest of the aggregate.
 
 ## Installing
 
@@ -265,8 +352,7 @@ falls back to the known aliases `jev-latest`, `jev-preview`, `jev-1.13.0`.
   plus a per-model breakdown and the last call. These come from
   `GET /stats`, backed by the aggregate at
   `$DSH_HOME/dsh-plugin-jev.json` (default `~/.dsh/dsh-plugin-jev.json`), so
-  they survive restarts. The file never contains the API key.
-- **What the key can see** — the TypeSafe API exposes only `POST /v1/systemone`
+  they survive restarts. The file never contains the API key.- **What the key can see** — the TypeSafe API exposes only `POST /v1/systemone`
   and `GET /v1/models`; there is no account or billing endpoint. The "catalog"
   in Settings is therefore the full extent of what a key reveals about the
   account.

@@ -21,6 +21,7 @@ import {
   DEFAULT_COST_PER_TOKEN,
 } from '../lib/index.js'
 import { JevStore, normalizeState as normalizeStoreState, emptyUsage } from '../lib/store.js'
+import { foldJevUsage, emptyJevUsage, JEV_USAGE_KEY } from '../lib/usage.js'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -169,6 +170,39 @@ await check('foldTranscript reads the flattened v4 tool-result shape', () => {
   assert.match(current.text, /TOOL RESULT: kept/)
   assert.match(current.text, /TOOL ERROR: boom/)
   assert.match(current.text, /TOOL RESULT: \[image\]/)
+})
+
+/**
+ * The command-guard refusal fold: a denial leaves no usage meta (the command
+ * never ran), so the fixed `[jev-guard] ` text prefix is the only trace in the
+ * session log — and it must count as a block, not be parsed as a usage call.
+ */
+await check('foldJevUsage counts a guard denial and carries guardBlocks through', () => {
+  const denial = (text, time) => ({
+    type: 'tool/result',
+    time,
+    data: { message: { role: 'tool', isError: true, content: [{ type: 'text', text }] } },
+  })
+  const usage = { model: 'jev-1.13.0', inputTokens: 100, outputTokens: 10, costUsd: 100 * DEFAULT_COST_PER_TOKEN }
+  const interleaved = [
+    denial('[jev-guard] Command blocked by the Jev tool guard.\nrule-1: git fetch', 1000),
+    { type: 'tool/result', time: 2000, data: { message: { role: 'tool', isError: false, content: [{ type: 'text', text: 'render' }] }, meta: { [JEV_USAGE_KEY]: usage } } },
+    denial('[jev-guard] Command blocked by the Jev tool guard.', 3000),
+  ]
+  const state = interleaved.reduce(foldJevUsage, emptyJevUsage())
+  assert.equal(state.calls, 1, 'a denial is not a jev_ask call')
+  assert.equal(state.guardBlocks, 2, 'each refusal counts once')
+  assert.equal(state.lastAt, new Date(3000).toISOString(), 'the newest denial sets lastAt')
+  assert.equal(state.inputTokens, 100, 'tokens still fold from real calls')
+  // A result that merely QUOTES a denial inside larger output is not a block.
+  const quoted = [{ type: 'tool/result', data: { message: { role: 'tool', isError: false, content: [{ type: 'text', text: 'previous command said: [jev-guard] blocked' }] } } }]
+  assert.equal(quoted.reduce(foldJevUsage, emptyJevUsage()).guardBlocks, 0, 'only anchored denials count')
+
+  // The count must survive an interleaved usage fold — this is the regression:
+  // the usage-path rebuild used to drop guardBlocks the moment any real call
+  // landed, so the pill's blocked count appeared and then vanished.
+  const withCall = [interleaved[1], interleaved[0]].reduce(foldJevUsage, emptyJevUsage())
+  assert.equal(withCall.guardBlocks, 1, 'a later jev_ask does not erase the earlier block count')
 })
 
 await check('foldTranscript bounds message count and total size', () => {

@@ -19,6 +19,7 @@ import {
   dangerDecision,
   normalizeGuardConfig,
   normalizeRules,
+  prefilterRules,
   defaultGuardConfig,
   scoringCacheKey,
   blockedMessage,
@@ -26,6 +27,8 @@ import {
   LruCache,
   SEVERITY_BANDS,
   DEFAULT_GUARD_TOOLS,
+  MAX_DENIALS,
+  MAX_COMMAND_CHARS,
 } from '../lib/guard.js'
 import { JevStore } from '../lib/store.js'
 
@@ -405,6 +408,220 @@ await check('an allowed command still records the last thing the guard looked at
   assert.equal(body.stats.last.costUsd, 300 * 4.2e-8)
 })
 
+await check('the block log records only real denials, with the full command', async () => {
+  const harness = makeHarness({
+    guardConfig: {
+      enabled: true,
+      mode: 'enforce',
+      blockThreshold: 'high',
+      commandBlocks: [{ id: 'rule-1', patterns: ['git fetch'], intent: 'git commands' }],
+    },
+    reply: reply({ score: 4, confidence: 0.97, usage: { input_tokens: 400, output_tokens: 12 } }),
+  })
+  const route = harness.routes.get('/plugins/dsh-plugin-jev/api/guard')
+  const read = async () => {
+    let body = null
+    await route.handler({ method: 'GET', url: '/plugins/dsh-plugin-jev/api/guard' }, { writeHead() {}, end(t) { body = JSON.parse(t) } })
+    return body
+  }
+
+  assert.deepEqual((await read()).denials, [], 'nothing blocked yet means an empty log')
+
+  // A long multi-line command must be kept whole: the log is for reading, and a
+  // truncated command is not evidence of what was stopped.
+  const longCommand = 'git fetch origin\n' + 'echo filler\n'.repeat(30) + 'git fetch --all'
+  await harness.guardHandler(exec('pwsh', { command: longCommand }), async () => ({ kind: 'allow' }))
+  const literal = await read()
+  assert.equal(literal.denials.length, 1)
+  assert.equal(literal.denials[0].command, longCommand, 'the command is stored untruncated')
+  assert.equal(literal.denials[0].rule, 'rule-1')
+  assert.equal(literal.denials[0].intent, 'git commands')
+  assert.equal(literal.denials[0].trigger, 'blocklist')
+  assert.equal(literal.denials[0].severity, null, 'a rule block has no severity')
+  assert.equal(literal.denials[0].confidence, null)
+  assert.equal(literal.denials[0].costUsd, null, 'a literal block costs nothing')
+  assert.equal(typeof literal.denials[0].at, 'string')
+
+  // A danger block carries the score that decided it, and its cost.
+  await harness.guardHandler(exec('pwsh', { command: 'rm -rf /var' }), async () => ({ kind: 'allow' }))
+  const danger = await read()
+  assert.equal(danger.denials.length, 2)
+  assert.equal(danger.denials[0].command, 'rm -rf /var', 'newest first')
+  assert.equal(danger.denials[0].rule, null)
+  assert.equal(danger.denials[0].trigger, 'danger')
+  assert.equal(danger.denials[0].severity, 'critical')
+  assert.equal(danger.denials[0].confidence, 0.97)
+  assert.equal(danger.denials[0].costUsd, 400 * 4.2e-8)
+  assert.equal(danger.denials[0].model, 'jev-1.13.0')
+  assert.equal(danger.denials[1].command, longCommand, 'the earlier block is still there')
+})
+
+await check('the block log shows monitor would-blocks but never allowed commands', async () => {
+  const monitor = makeHarness({
+    guardConfig: { enabled: true, mode: 'monitor', commandBlocks: [{ id: 'r', patterns: ['git fetch'] }] },
+    reply: reply({ score: 0 }),
+  })
+  await monitor.guardHandler(exec('pwsh', { command: 'git fetch' }), async () => ({ kind: 'allow' }))
+  let body = null
+  await monitor.routes.get('/plugins/dsh-plugin-jev/api/guard').handler({ method: 'GET', url: '/plugins/dsh-plugin-jev/api/guard' }, { writeHead() {}, end(t) { body = JSON.parse(t) } })
+  assert.equal(body.stats.blockedLiteral, 1, 'the would-be block is counted either way')
+  // A log that stays empty while the guard is plainly detecting blocks reads as
+  // "the guard does nothing", so monitor entries are listed — flagged as such.
+  assert.equal(body.denials.length, 1, 'monitor mode lists what it would have blocked')
+  assert.equal(body.denials[0].command, 'git fetch')
+  assert.equal(body.denials[0].wouldBlock, false, 'flagged as a would-be block, not a refusal')
+  assert.equal(body.denials[0].rule, 'r')
+
+  // A command the score allowed is not a block in any mode, so it is not listed.
+  const enforcing = makeHarness({ guardConfig: { enabled: true, mode: 'enforce' }, reply: reply({ score: 0 }) })
+  await enforcing.guardHandler(exec('pwsh', { command: 'echo hi' }), async () => ({ kind: 'allow' }))
+  await enforcing.routes.get('/plugins/dsh-plugin-jev/api/guard').handler({ method: 'GET', url: '/plugins/dsh-plugin-jev/api/guard' }, { writeHead() {}, end(t) { body = JSON.parse(t) } })
+  assert.deepEqual(body.denials, [], 'an allowed command is not a block')
+
+  // An enforced refusal is flagged the other way.
+  const refused = makeHarness({ guardConfig: { enabled: true, mode: 'enforce', commandBlocks: [{ id: 'r', patterns: ['git fetch'] }] } })
+  await refused.guardHandler(exec('pwsh', { command: 'git fetch' }), async () => ({ kind: 'allow' }))
+  await refused.routes.get('/plugins/dsh-plugin-jev/api/guard').handler({ method: 'GET', url: '/plugins/dsh-plugin-jev/api/guard' }, { writeHead() {}, end(t) { body = JSON.parse(t) } })
+  assert.equal(body.denials.length, 1)
+  assert.equal(body.denials[0].wouldBlock, true, 'enforce mode records a real refusal')
+})
+
+await check('the block log is bounded and the accessor returns copies', async () => {
+  const harness = makeHarness({
+    guardConfig: { enabled: true, mode: 'enforce', commandBlocks: [{ id: 'r', patterns: ['blockme'] }] },
+  })
+  for (let i = 0; i < MAX_DENIALS + 5; i += 1) {
+    await harness.guardHandler(exec('pwsh', { command: 'blockme ' + i }), async () => ({ kind: 'allow' }))
+  }
+  let body = null
+  await harness.routes.get('/plugins/dsh-plugin-jev/api/guard').handler({ method: 'GET', url: '/plugins/dsh-plugin-jev/api/guard' }, { writeHead() {}, end(t) { body = JSON.parse(t) } })
+  assert.equal(body.denials.length, MAX_DENIALS, 'the log is capped')
+  assert.equal(body.denials[0].command, 'blockme ' + (MAX_DENIALS + 4), 'newest is kept')
+  assert.equal(body.stats.blockedLiteral, MAX_DENIALS + 5, 'every block is still counted')
+})
+
+await check('an oversized command is refused without spending a call', async () => {
+  // A command too big to evaluate is a bypass: "make it too large to score" must
+  // not be a way past the guard, and truncating would be worse because the
+  // dangerous part could sit past the cut.
+  const harness = makeHarness({
+    guardConfig: { enabled: true, mode: 'enforce', commandBlocks: [] },
+    reply: reply({ score: 0 }),
+  })
+  const huge = 'echo ' + 'a'.repeat(MAX_COMMAND_CHARS)
+  const decision = await harness.guardHandler(exec('pwsh', { command: huge }), async () => ({ kind: 'allow' }))
+  assert.equal(decision.kind, 'deny', 'an unevaluable command is refused, not waved through')
+  assert.match(decision.reason, /characters, over the/)
+  assert.match(decision.reason, /cannot be cleared/)
+  assert.equal(harness.calls.length, 0, 'nothing is sent upstream for a command that cannot be scored')
+
+  let body = null
+  await harness.routes.get('/plugins/dsh-plugin-jev/api/guard').handler({ method: 'GET', url: '/plugins/dsh-plugin-jev/api/guard' }, { writeHead() {}, end(t) { body = JSON.parse(t) } })
+  assert.equal(body.stats.blockedOversize, 1, 'it gets its own counter')
+  assert.equal(body.stats.blockedLiteral + body.stats.blockedSemantic + body.stats.blockedDanger, 0, 'it is not confused with the other layers')
+  assert.equal(body.denials.length, 1)
+  assert.equal(body.denials[0].trigger, 'oversize')
+  assert.equal(body.denials[0].wouldBlock, true, 'it was a real refusal')
+  assert.equal(body.denials[0].command.length, huge.length, 'the command is kept for the log')
+})
+
+await check('the oversized rail holds at the boundary and in monitor mode', async () => {
+  const atLimit = makeHarness({ guardConfig: { enabled: true, mode: 'enforce' }, reply: reply({ score: 0 }) })
+  const exactly = 'e'.repeat(MAX_COMMAND_CHARS)
+  const allowed = await atLimit.guardHandler(exec('pwsh', { command: exactly }), async () => ({ kind: 'allow' }))
+  assert.deepEqual(allowed, { kind: 'allow' }, 'exactly at the limit is still evaluated')
+  assert.equal(atLimit.calls.length, 1, 'so it does reach Jev')
+
+  const one = makeHarness({ guardConfig: { enabled: true, mode: 'enforce' }, reply: reply({ score: 0 }) })
+  const over = await one.guardHandler(exec('pwsh', { command: 'e'.repeat(MAX_COMMAND_CHARS + 1) }), async () => ({ kind: 'allow' }))
+  assert.equal(over.kind, 'deny', 'one character over is refused')
+  assert.equal(one.calls.length, 0)
+
+  // Monitor mode records the would-be block and lets it run, like every other
+  // layer — the rail is not a special case that silently passes.
+  const monitor = makeHarness({ guardConfig: { enabled: true, mode: 'monitor' }, reply: reply({ score: 0 }) })
+  const observed = await monitor.guardHandler(exec('pwsh', { command: 'e'.repeat(MAX_COMMAND_CHARS + 1) }), async () => ({ kind: 'allow' }))
+  assert.deepEqual(observed, { kind: 'allow' })
+  let body = null
+  await monitor.routes.get('/plugins/dsh-plugin-jev/api/guard').handler({ method: 'GET', url: '/plugins/dsh-plugin-jev/api/guard' }, { writeHead() {}, end(t) { body = JSON.parse(t) } })
+  assert.equal(body.stats.blockedOversize, 1)
+  assert.equal(body.denials[0].wouldBlock, false, 'monitor mode logs it as a would-be block')
+})
+
+await check('a disabled guard does not enforce the oversized rail either', async () => {
+  const harness = makeHarness({ guardConfig: { enabled: false, mode: 'enforce' } })
+  const decision = await harness.guardHandler(exec('pwsh', { command: 'e'.repeat(MAX_COMMAND_CHARS + 500) }), async () => ({ kind: 'allow' }))
+  assert.deepEqual(decision, { kind: 'allow' }, 'off means off: no rail, no spend')
+  assert.equal(harness.calls.length, 0)
+})
+
+await check('the prefilter decides which rules the semantic layer is asked about', async () => {
+  const rules = normalizeRules([
+    { id: 'pref', patterns: [], intent: 'fetch a repo', prefilter: ['git', 'Git.exe'] },
+    { id: 'unpref', patterns: [], intent: 'wipe the disk' },
+    { id: 'other', patterns: [], intent: 'post a webhook', prefilter: ['curl'] },
+  ])
+  assert.deepEqual(rules.find((r) => r.id === 'pref').prefilter, ['git', 'git.exe'], 'tokens are trimmed and lowercased')
+  // A rule with no prefilter is ALWAYS asked: "skip" is the dangerous default.
+  assert.deepEqual(prefilterRules('echo hi', rules).map((r) => r.id), ['unpref'])
+  // A matching token lets the rule through.
+  assert.deepEqual(prefilterRules('git $(echo commit) -m x', rules).map((r) => r.id).sort(), ['pref', 'unpref'])
+  assert.deepEqual(prefilterRules('curl https://x', rules).map((r) => r.id).sort(), ['other', 'unpref'])
+  // No token anywhere still keeps the unprefiltred rule in play.
+  assert.deepEqual(prefilterRules('', rules).map((r) => r.id), ['unpref'])
+})
+
+await check('a prefiltred-out command costs no call at all', async () => {
+  const harness = makeHarness({
+    guardConfig: {
+      enabled: true,
+      mode: 'enforce',
+      // Danger scoring off, so the rule list is the only reason to call Jev.
+      scoreDanger: false,
+      commandBlocks: [{ id: 'git-rule', patterns: [], intent: 'fetch a repo', prefilter: ['git'] }],
+    },
+  })
+  await harness.guardHandler(exec('pwsh', { command: 'Get-ChildItem -Recurse' }), async () => ({ kind: 'allow' }))
+  assert.equal(harness.calls.length, 0, 'a command with no prefilter token makes no call')
+  let body = null
+  await harness.routes.get('/plugins/dsh-plugin-jev/api/guard').handler({ method: 'GET', url: '/plugins/dsh-plugin-jev/api/guard' }, { writeHead() {}, end(t) { body = JSON.parse(t) } })
+  assert.equal(body.stats.skipped, 1, 'the skip is counted, so the saving is visible')
+  assert.equal(body.stats.evaluated, 1, 'it was still evaluated by the guard')
+})
+
+await check('a prefilter match still gets scored, and an obfuscated one is caught', async () => {
+  const harness = makeHarness({
+    guardConfig: {
+      enabled: true,
+      mode: 'enforce',
+      scoreDanger: false,
+      commandBlocks: [{ id: 'git-rule', patterns: ['git fetch'], intent: 'fetch a repo', prefilter: ['git'] }],
+    },
+    reply: reply({ score: 0, intentTrue: true, intentId: 'intent_git-rule' }),
+  })
+  // Contains "git" but not the literal pattern, so only the semantic layer can
+  // catch it — exactly the case the prefilter exists to preserve.
+  const decision = await harness.guardHandler(exec('pwsh', { command: 'git $(echo fetch)' }), async () => ({ kind: 'allow' }))
+  assert.equal(decision.kind, 'deny', 'a prefilter pass still reaches and satisfies the semantic layer')
+  assert.equal(harness.calls.length, 1)
+  let body = null
+  await harness.routes.get('/plugins/dsh-plugin-jev/api/guard').handler({ method: 'GET', url: '/plugins/dsh-plugin-jev/api/guard' }, { writeHead() {}, end(t) { body = JSON.parse(t) } })
+  assert.equal(body.stats.skipped, 0, 'no skip happened')
+  assert.equal(body.stats.blockedSemantic, 1)
+})
+
+await check('scoreDanger:false drops the severity questions from the call', async () => {
+  const harness = makeHarness({
+    guardConfig: { enabled: true, mode: 'enforce', scoreDanger: false, commandBlocks: [{ id: 'r', patterns: [], intent: 'fetch', prefilter: ['git'] }] },
+    reply: reply({ score: 0, intentTrue: false }),
+  })
+  await harness.guardHandler(exec('pwsh', { command: 'git status' }), async () => ({ kind: 'allow' }))
+  const sent = JSON.parse(harness.calls[0].init.body)
+  assert.equal(sent.questions.severity, undefined, 'no danger question is asked')
+  assert.equal(sent.questions.irreversible, undefined)
+  assert.ok(sent.questions['intent_r'], 'the rule question still is')
+})
+
 await check('an absolute rule blocks when Jev is unreachable; a normal one does not', async () => {
   const absolute = makeHarness({
     guardConfig: { enabled: true, mode: 'enforce', commandBlocks: [{ id: 'abs', patterns: ['never-matches-x'], intent: 'never push', absolute: true }] },
@@ -530,6 +747,70 @@ await check('the stored guard config survives a recorded call', async () => {
   store.record({ model: 'm', inputTokens: 10, outputTokens: 1, costUsd: 0, source: 'guard' })
   assert.equal(store.snapshot().guard.enabled, true, 'record() must not erase the guard config')
   assert.equal(store.snapshot().guard.mode, 'enforce')
+})
+
+await check('guard counters persist across a restart', async () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'jev-guard-')), 'state.json')
+  const store = new JevStore(file)
+  const harness = makeHarness({ store, guardConfig: { enabled: true, mode: 'enforce' }, reply: reply({ score: 4, confidence: 0.99 }) })
+  await harness.guardHandler(exec('pwsh', { command: 'rm -rf /' }), async () => ({ kind: 'allow' }))
+  // A restart: a fresh store re-reading the same file, then a fresh harness
+  // seeded from it — the numbers continue rather than reset.
+  const restarted = new JevStore(file)
+  assert.equal(restarted.state.guardCounters.evaluated, 1, 'the evaluation count survived the restart')
+  assert.equal(restarted.state.guardCounters.blockedDanger, 1, 'the block count survived the restart')
+  assert.equal(restarted.state.guardCounters.last.command, 'rm -rf /', 'the last decision survived the restart')
+  const resumed = makeHarness({ store: restarted, guardConfig: { enabled: true, mode: 'enforce' }, reply: reply({ score: 4, confidence: 0.99 }) })
+  await resumed.guardHandler(exec('pwsh', { command: 'rm -rf /var' }), async () => ({ kind: 'allow' }))
+  let body = null
+  await resumed.routes.get('/plugins/dsh-plugin-jev/api/guard').handler({ method: 'GET', url: '/plugins/dsh-plugin-jev/api/guard' }, { writeHead() {}, end(t) { body = JSON.parse(t) } })
+  assert.equal(body.stats.evaluated, 2, 'the resumed guard continues from the persisted totals')
+  assert.equal(body.stats.blockedDanger, 2)
+})
+
+await check('a recorded call does not erase the guard counters', () => {
+  const store = new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-guard-')), 'state.json'))
+  store.setGuardCounters({ evaluated: 7, skipped: 2 })
+  store.record({ model: 'm', inputTokens: 10, outputTokens: 1, costUsd: 0, source: 'guard' })
+  const snapshot = store.snapshot()
+  assert.equal(snapshot.guardCounters.evaluated, 7, 'record() must not erase the counters')
+  assert.equal(snapshot.guardCounters.skipped, 2)
+  assert.equal(snapshot.guardCounters.blockedLiteral, 0)
+})
+
+await check('setGuardCounters skips an unchanged report', () => {
+  const store = new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-guard-')), 'state.json'))
+  assert.equal(store.snapshot().guardCounters.evaluated, 0, 'a fresh state starts at zero')
+  assert.equal(store.setGuardCounters({ evaluated: 3, blockedLiteral: 1, last: { command: 'x' } }), true)
+  assert.equal(store.snapshot().guardCounters.evaluated, 3)
+  assert.equal(store.snapshot().guardCounters.last.command, 'x')
+  const before = store.snapshot().updatedAt
+  assert.equal(store.setGuardCounters({ evaluated: 3, blockedLiteral: 1, last: { command: 'x' } }), false, 'an identical report is a no-op')
+  assert.equal(store.snapshot().updatedAt, before, 'and does not touch the file')
+  assert.equal(store.setGuardCounters({ evaluated: 4 }), true, 'a changed report persists')
+  assert.equal(store.snapshot().guardCounters.evaluated, 4)
+})
+
+await check('an unchanged counter report costs no write', async () => {
+  const store = new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-guard-')), 'state.json'))
+  const harness = makeHarness({ store, guardConfig: { enabled: false } })
+  const before = store.snapshot().updatedAt
+  // A disabled guard returns before touching any counter, so its pass reports
+  // unchanged numbers — which must not rewrite the file on every dispatch.
+  await harness.guardHandler(exec('pwsh', { command: 'git fetch' }), async () => ({ kind: 'allow' }))
+  assert.equal(store.snapshot().updatedAt, before, 'a pass that moved nothing persists nothing')
+  assert.equal(store.snapshot().guardCounters.evaluated, 0)
+})
+
+await check('a failing onCounters must not break the guard', async () => {
+  const harness = makeHarness({ guardConfig: { enabled: true, mode: 'enforce', commandBlocks: [{ id: 'r', patterns: ['git fetch'] }] } })
+  // makeHarness wired the real store; break the persist path the way a full
+  // disk or a read-only file would, and the block must still happen.
+  const original = harness.store.setGuardCounters.bind(harness.store)
+  harness.store.setGuardCounters = () => { throw new Error('disk full') }
+  const decision = await harness.guardHandler(exec('pwsh', { command: 'git fetch' }), async () => ({ kind: 'allow' }))
+  assert.equal(decision.kind, 'deny', 'the block survives a broken persist path')
+  harness.store.setGuardCounters = original
 })
 
 await check('a bad guard patch is refused by the route', async () => {
