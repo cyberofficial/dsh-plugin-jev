@@ -11,6 +11,11 @@ structured answers with calibrated probabilities, evaluated in parallel in one
 call. This plugin makes that decision surface a tool the assistant reaches for on
 its own — there is **no human query console**.
 
+**Full documentation lives in [docs/](docs/README.md)** — written for AI models
+and agents integrating with the plugin: what Jev is and is not, the three
+interaction surfaces (`jev_ask` tool, `ctx.get('jev')` service, HTTP routes),
+the command guard, accounting, and a module map with invariants.
+
 ## ⚠️ Read this before enabling the command guard
 
 The command guard judges commands with a **probabilistic language model**. It is
