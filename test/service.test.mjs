@@ -46,6 +46,7 @@ function makeHarness(options = {}) {
     async describe() { return { configured: Object.keys(stored).length > 0, writable: true } },
   }
   const store = options.store || new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-svc-')), 'state.json'))
+  const guardHandlers = []
   const ctx = {
     get(key) {
       if (key === 'credentials') return credentials
@@ -54,7 +55,10 @@ function makeHarness(options = {}) {
     },
     provide(name, value) { provided.set(name, value); return () => provided.delete(name) },
     logger: { warn() {}, info() {}, error() {} },
-    effect(fn) { fn() },
+    effect(fn) { return fn() },
+    // apply() also registers the tools/pre-execute command guard. This suite is
+    // about the service, so the guard listener is captured and not driven.
+    on(event, handler) { if (event === 'tools/pre-execute') guardHandlers.push(handler); return () => {} },
     webServer: { register: () => () => {} },
     systemPrompt: { section: () => () => {} },
     tools: { register: () => () => {} },

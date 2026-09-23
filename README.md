@@ -22,6 +22,10 @@ its own — there is **no human query console**.
   sibling plugins as `ctx.get('jev')`, so a plugin can get a calibrated
   judgment without spending a main-model round trip. See
   [Host service](#host-service).
+- **Command guard** (`lib/guard.js`): a `tools/pre-execute` listener that can
+  deny a shell command, from user-authored blocked-command rules or Jev's own
+  danger score. See
+  [Tool danger detection and blocked commands](#tool-danger-detection-and-blocked-commands).
 - **Usage accounting** (`lib/usage.js` + `lib/store.js`):
   - every successful call records its usage on the `tool/result` event — via `meta` for root calls, and readable from the result's rendered text for nested ones (no custom session event, which the harness's log reader would refuse),
     folded by the `jevUsage` session projection and shipped to the browser; and
@@ -90,6 +94,75 @@ Security note: the resolved credential is attached only to the upstream
 `Authorization` header. It is never part of the value the service returns, so a
 caller cannot log it by accident.
 
+
+## Tool danger detection and blocked commands
+
+A guard on `tools/pre-execute` can deny a shell command before it is dispatched.
+It ships **disabled** and in **`monitor` mode**, so enabling it records what it
+*would* block without blocking anything — watch it for a while, then switch to
+`enforce`. Both controls live in **Settings -> Plugins -> Jev (TypeSafe)**.
+
+It applies to `pwsh`, `bash`, `pwsh_persistent` and `bash_persistent` (the list
+is configurable) and it sees nested `run_code` sub-dispatches, so a command built
+inside code execution is not a way around it.
+
+### The three layers, in order
+
+| # | Layer | Cost | Can fail? |
+| --- | --- | --- | --- |
+| 1 | **Blocked commands, literal** — case-insensitive substring match against your rules | none | no |
+| 2 | **Blocked commands, semantic** — Jev judges whether the command accomplishes a rule's *intent* | one call | yes → open, or closed when the rule is `absolute` |
+| 3 | **Danger scoring** — Jev scores severity and irreversibility | (same call) | yes → open |
+
+**A user rule always outranks Jev's safety opinion.** That is what makes "block
+this even though it is safe" mean something. Layer 1 runs first and is
+deterministic, so nothing can argue it out of a block; layer 2 is what catches
+`git $(echo commit)` and similar obfuscation that no pattern list survives.
+
+### Danger scoring
+
+Two questions in one call: a `score` over `safe / low / moderate / high /
+critical`, and a `noul` for irreversibility. Then:
+
+- severity at or above the threshold -> **block**
+- below it, but irreversible at `moderate`+ (with "block when irreversible" on)
+  -> **block**
+- otherwise -> allow
+- and when Jev's **confidence** is below the floor (default `0.7`), a block is
+  downgraded to a warning — a coin-flip judgment must not block real work
+
+Jev sees the command, the working directory, **and the resolved sandbox mode**,
+because `rm -rf` under `read-only` is not the same command as under
+`danger-full-access`. When the mode cannot be read the guard sends `unknown` and
+tells Jev to assume no containment rather than pretending it knows.
+
+Identical commands are cached on (command + cwd + mode), so repeats are scored
+once. Every scored command is a real Jev call and is billed: it lands in its own
+`guard` bucket in Settings, so the feature's cost sits next to what it blocks.
+
+### Safety properties worth stating
+
+- **Jev supplies numbers; the plugin owns the decision.** The deny path is a
+  deterministic function of the score and your thresholds.
+- **Patterns are substrings, not regex.** A pathological regex would stall
+  inside the dispatch path and hang every shell command in the session. So
+  `git push` also blocks `git push --dry-run` — the Settings field says so right
+  next to the input rather than leaving it to be discovered.
+- **Command text is untrusted.** It can arrive from a file, a web page, or a
+  tool result, so a command containing "ignore previous instructions" is part of
+  the state Jev reads. Layer 1 is the guarantee and is not model-mediated; the
+  semantic layer is best-effort and runs only after it; and a rule's intent is
+  always yours, never the command's.
+- **The guard never rewrites a command.** It allows or denies.
+
+### Routes
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/plugins/dsh-plugin-jev/api/guard` | GET | Guard config, live counters, and the defaults |
+| `/plugins/dsh-plugin-jev/api/guard` | POST | A partial config patch; absent keys are left alone |
+
+`GET /stats` also carries a `guard` counters block.
 
 ## Installing
 
@@ -188,8 +261,8 @@ falls back to the known aliases `jev-latest`, `jev-preview`, `jev-1.13.0`.
   with no calls shows `Jev · 0 calls · $0`. It counts the **model's** `jev_ask`
   calls only; a plugin calling the host service is counted below instead.
 - **Overall** — the Settings tab shows total calls, input/output tokens, and
-  estimated cost, a `tool`/`host` split of where those calls came from, plus a
-  per-model breakdown and the last call. These come from
+  estimated cost, a `tool`/`host`/`guard` split of where those calls came from,
+  plus a per-model breakdown and the last call. These come from
   `GET /stats`, backed by the aggregate at
   `$DSH_HOME/dsh-plugin-jev.json` (default `~/.dsh/dsh-plugin-jev.json`), so
   they survive restarts. The file never contains the API key.
@@ -222,19 +295,21 @@ the cap.
 
 - `lib/index.js` — the host half (Cordis plugin; routes, credential, folds)
 - `lib/service.js` — the host-side `ctx.get('jev')` service sibling plugins call
+- `lib/guard.js` — the `tools/pre-execute` command guard (blocked commands and
+  danger scoring)
 - `lib/tool.js` — the agent tool, guidance text, and model-facing formatters
 - `lib/usage.js` — the per-session usage fold (from `tool/result` meta), the `jevUsage` projection, and
   the stats formatting
-- `lib/store.js` — the persisted model choice + overall aggregate (with the
-  `tool`/`host` split)
+- `lib/store.js` — the persisted model choice, guard config, and overall
+  aggregate (with the `tool`/`host`/`guard` split)
 - `src/client.template.js` — the browser half source
 - `lib/client.js` — generated browser bundle (`npm run build`)
 - `scripts/build-client.mjs` — copies the template to the served path
   (`npm run check:build` verifies it is current)
-- `test/` — `host.test.mjs` (pure helpers + the store split), `tool.test.mjs`
+- `test/` — `host.test.mjs` (pure helpers + the store), `tool.test.mjs`
   (the agent tool, the projection, and usage recording), `service.test.mjs` (the
-  host service), `key.test.mjs` (routes with a canned fetch),
-  `client.test.mjs` (drives the real bundle factory)
+  host service), `guard.test.mjs` (the command guard), `key.test.mjs` (routes
+  with a canned fetch), `client.test.mjs` (drives the real bundle factory)
 
 Run the checks with `npm test`; `npm run check` does a `npm pack --dry-run`.
 

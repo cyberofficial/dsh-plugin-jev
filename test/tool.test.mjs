@@ -40,6 +40,7 @@ function makeHarness(options = {}) {
   const sections = []
   const toolDefs = []
   const projections = []
+  const guardHandlers = []
   const store = options.store || new JevStore(join(mkdtempSync(join(tmpdir(), 'jev-tool-')), 'state.json'))
   const ctx = {
     get(key) {
@@ -48,15 +49,18 @@ function makeHarness(options = {}) {
       return undefined
     },
     logger: { warn() {}, info() {}, error() {} },
-    effect(fn) { fn() },
+    effect(fn) { return fn() },
     provide: () => () => {},
+    // The plugin registers the tools/pre-execute command guard; capture the
+    // handler so the same listener the registry drives stays observable here.
+    on(event, handler) { if (event === 'tools/pre-execute') guardHandlers.push(handler); return () => {} },
     webServer: { register: () => () => {} },
     systemPrompt: { section: (section) => { sections.push(section); return () => {} } },
     tools: { register: (definition) => { toolDefs.push(definition); return () => {} } },
     sessionProjections: { register: (definition) => { projections.push(definition); return () => {} } },
   }
   apply(ctx, Object.assign({ baseURL: 'https://api.typesafe.ai/v1', fetchImpl: options.fetchImpl, store }, options.config))
-  return { sections, toolDefs, projections, store }
+  return { sections, toolDefs, projections, store, guardHandlers }
 }
 
 const REPLY = {

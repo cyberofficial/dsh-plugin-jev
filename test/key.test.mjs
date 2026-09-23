@@ -78,8 +78,11 @@ function makeHarness(options = {}) {
       return undefined
     },
     logger: { warn() {}, info() {}, error() {} },
-    effect(fn) { fn() },
+    effect(fn) { return fn() },
     provide: () => () => {},
+    // The plugin registers a tools/pre-execute guard that nothing in this suite
+    // exercises; the stub keeps apply() mountable.
+    on() { return () => {} },
     webServer,
     systemPrompt: { section: (section) => { sections.push(section); return () => {} } },
     tools: { register: (definition) => { toolDefs.push(definition); return () => {} } },

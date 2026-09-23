@@ -198,16 +198,20 @@ await check('the store keeps a tool/host source split and reads older files', ()
   assert.deepEqual(store.snapshot().bySource, {
     tool: { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
     host: { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+    guard: { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
   })
   store.record({ model: 'm', inputTokens: 10, outputTokens: 2, costUsd: 0.1, source: 'tool' })
   store.record({ model: 'm', inputTokens: 5, outputTokens: 1, costUsd: 0.2, source: 'host' })
+  store.record({ model: 'm', inputTokens: 2, outputTokens: 1, costUsd: 0.3, source: 'guard' })
   const snapshot = store.snapshot()
   assert.equal(snapshot.bySource.tool.calls, 1)
   assert.equal(snapshot.bySource.host.calls, 1)
+  assert.equal(snapshot.bySource.guard.calls, 1, 'the guard has its own bucket')
   assert.equal(snapshot.bySource.tool.inputTokens, 10)
   assert.equal(snapshot.bySource.host.inputTokens, 5)
-  assert.equal(snapshot.totals.calls, 2, 'totals still count every call')
-  assert.equal(snapshot.lastCall.source, 'host')
+  assert.equal(snapshot.bySource.guard.inputTokens, 2)
+  assert.equal(snapshot.totals.calls, 3, 'totals still count every call')
+  assert.equal(snapshot.lastCall.source, 'guard')
 
   // A file written before the split has no bySource: those calls were all
   // model-driven, so they must reconstruct into the tool bucket rather than

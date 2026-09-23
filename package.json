@@ -1,8 +1,8 @@
 {
   "name": "dsh-plugin-jev",
-  "version": "0.1.6",
+  "version": "2.0.0",
   "private": true,
-  "description": "Agent-facing TypeSafe Jev (System One) for DSH — a jev_ask tool the model calls, a per-chat usage chip, and a Settings tab for the key, model choice, and overall stats",
+  "description": "Agent-facing TypeSafe Jev (System One) for DSH — a jev_ask tool the model calls, a host-side decision service for plugins, a command guard that blocks dangerous or forbidden shell commands, a per-chat usage chip, and a Settings tab for the key, model choice, and overall stats",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -25,7 +25,7 @@
   "scripts": {
     "build": "node scripts/build-client.mjs",
     "check:build": "node scripts/build-client.mjs --check",
-    "test": "npm run check:build && node test/host.test.mjs && node test/tool.test.mjs && node test/service.test.mjs && node test/key.test.mjs && node test/client.test.mjs",
+    "test": "npm run check:build && node test/host.test.mjs && node test/tool.test.mjs && node test/service.test.mjs && node test/guard.test.mjs && node test/key.test.mjs && node test/client.test.mjs",
     "check": "npm pack --dry-run"
   },
   "dsh": {
