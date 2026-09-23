@@ -180,6 +180,16 @@ await check('a missing key surfaces as a typed no-key failure', async () => {
   assert.equal(code, 'no-key')
 })
 
+await check('service validation errors carry a bad-input code for HTTP mapping', async () => {
+  // A route fronting the service answers 400 for a caller mistake and 502 for
+  // everything else; the marker is what makes that distinction possible.
+  const harness = makeHarness({ stored: { typesafe: 'k' }, fetchImpl: async () => responseFor(200, REPLY) })
+  const error = await harness.service.ask({ questions: { q: { type: 'noul', instructions: 'x' } } })
+    .then(() => null, (failure) => failure)
+  assert.equal(error.name, 'ServiceInputError')
+  assert.equal(error.code, 'bad-input')
+})
+
 await check('a malformed question is refused before any network work', async () => {
   let called = 0
   const harness = makeHarness({ stored: { typesafe: 'k' }, fetchImpl: async () => { called += 1; return responseFor(200, REPLY) } })

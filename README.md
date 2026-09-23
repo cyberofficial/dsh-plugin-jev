@@ -105,11 +105,19 @@ export function apply(ctx) {
 }
 ```
 
-`ask({ state, questions, model? })` returns
+`ask({ state, questions, model?, signal?, source? })` returns
 `{ model, answers, usage, costUsd, elapsedMs, credential }` and throws a
-`TypeError`/`RangeError` on malformed input (before any network work) or an
-error with `.code === 'no-key'` when no credential is configured. The same
-limits the routes enforce apply: 64 questions, a bounded state.
+`ServiceInputError` with `.code === 'bad-input'` on malformed input (before any
+network work) or an error with `.code === 'no-key'` when no credential is
+configured. `signal` lets a caller on a cancellable path abort the request;
+`source` labels the accounting entry (default `host`). The same limits the
+routes enforce apply: 64 questions, a bounded state.
+
+The plugin's own HTTP route `POST /plugins/dsh-plugin-jev/api/ask`
+(`{ state, questions, model? }`) fronts this same service, so external callers
+get the identical envelope and their calls are accounted under `host` too. It
+answers 400 for a caller-shaped mistake, 401 with no key, and 502 when the
+upstream fails.
 
 **This module supplies calibrated numbers, not policy.** It has no opinion about
 what a probability should mean for your feature. A consumer decides its own

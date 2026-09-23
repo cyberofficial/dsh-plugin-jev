@@ -175,6 +175,40 @@ await check('ask route surfaces a malformed question as 502 without calling upst
   assert.equal(called, 0)
 })
 
+await check('the ask route accounts its call under source host', async () => {
+  // Regression: the route used to call askJev directly, which worked but
+  // recorded nothing — a live test showed bySource.host staying at zero while
+  // the route happily returned a priced answer. The route now goes through the
+  // host service, so the spend is visible in the aggregate.
+  const harness = makeHarness({
+    stored: { typesafe: 'test-key' },
+    fetchImpl: async () => responseFor(200, ASK_REPLY),
+  })
+  const capture = await invoke(harness, ASK, makeReq('POST', ASK, ASK_BODY))
+  assert.equal(capture.status, 200)
+  assert.equal(capture.body.answers.is_urgent.noul, 0.92, 'the caller still gets the answer envelope')
+  const snapshot = harness.store.snapshot()
+  assert.equal(snapshot.bySource.host.calls, 1, 'an HTTP ask lands in the host bucket')
+  assert.equal(snapshot.bySource.tool.calls, 0, 'the tool bucket is untouched')
+  assert.equal(snapshot.totals.calls, 1)
+  assert.equal(snapshot.lastCall.source, 'host')
+})
+
+await check('the ask route answers a caller-shaped mistake with 400', async () => {
+  let called = 0
+  const harness = makeHarness({
+    stored: { typesafe: 'test-key' },
+    fetchImpl: async () => { called += 1; return responseFor(200, ASK_REPLY) },
+  })
+  const missingState = await invoke(harness, ASK, makeReq('POST', ASK, { questions: ASK_BODY.questions }))
+  assert.equal(missingState.status, 400, "missing state is the caller's mistake, not an upstream failure")
+  assert.match(missingState.body.error, /state is required/)
+  const oversize = await invoke(harness, ASK, makeReq('POST', ASK, { state: 'x'.repeat(200_001), questions: ASK_BODY.questions }))
+  assert.equal(oversize.status, 400)
+  assert.match(oversize.body.error, /service budget/)
+  assert.equal(called, 0, 'no upstream work for either refusal')
+})
+
 await check('models route normalizes and caches the catalog', async () => {
   let called = 0
   const harness = makeHarness({
