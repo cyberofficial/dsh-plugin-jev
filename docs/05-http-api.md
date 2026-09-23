@@ -47,10 +47,10 @@ optional -  defaults to the stored preference, else `jev-latest`.
 | Status | Meaning |
 | --- | --- |
 | 200 | answered |
-| 400 | your body is malformed (`error.code === 'bad-input'` upstream: missing state/questions, over budget) or not valid JSON |
+| 400 | the body is valid JSON but fails the service's input validation (missing state/questions, over budget). The 400 status is the only signal; the body carries just `{ error: "<message>" }`, no code field |
 | 401 | no TypeSafe key configured |
 | 429 | rate limited upstream (retries once honoring `retry-after` internally first) |
-| 502 | anything else (malformed question values, upstream error, timeout) |
+| 502 | anything else, including a body that is not valid JSON, malformed question values, upstream errors, and timeouts |
 
 **curl:**
 
@@ -113,12 +113,11 @@ so an external caller can build a `state` for `POST /ask` from a live chat.
 
 ## GET /stats -  the usage aggregate
 
-→ 200. Shape (all keys present):
+→ 200. Shape (all keys present; note there is exactly **one** `guard` key):
 
 ```json
 {
   "model": null,
-  "guard": { "enabled": true, "mode": "enforce", "...": "the whole guard config, verbatim" },
   "guardCounters": { "evaluated": 9, "blockedLiteral": 1, "blockedSemantic": 0,
                      "blockedDanger": 3, "blockedOversize": 0, "downgraded": 0,
                      "failures": 0, "cached": 2, "skipped": 1,
@@ -145,13 +144,17 @@ so an external caller can build a `state` for `POST /ask` from a live chat.
 
 Notes:
 
+- The single `guard` key holds the guard's **live counters** (the route's
+  `guard: guard.stats()` overwrites any same-named store key; JSON allows only
+  one). The stored guard **config** is deliberately not in `/stats`; read it
+  from `GET /guard`'s `config`. `guardCounters` is the same numbers, durable.
 - `totals` / `bySource` / `guardCounters` / `byModel` are **durable** -  they
   survive a harness restart (persisted in `~/.dsh/dsh-plugin-jev.json`).
-- The top-level `guard` key is the stored guard **config**; the bottom `guard`
-  key (added by the route) is the guard's **live counters**. `cachedEntries`
-  there is run-local.
+  Only `guard.cachedEntries` is run-local.
 - `bySource.tool.calls` counts model `jev_ask` calls; `host` counts plugin and
   HTTP asks; `guard` counts scored commands.
+- This shape is as of the current source build; the running harness must be
+  restarted after an upgrade to expose it.
 
 ## GET/POST /guard -  the command guard
 

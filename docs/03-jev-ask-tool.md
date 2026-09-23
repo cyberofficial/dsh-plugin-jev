@@ -80,7 +80,7 @@ plus a cost trailer:
 - `my_id [noul] -> TRUE (p=0.930)`
 - `my_id [choice] -> phone (p=0.870; confidence 0.910)` followed by an indented
   `probabilities: phone 0.870, email 0.100, sms 0.030` line
-- `my_id [score] -> 2 (confidence 0.730)` followed by indented `legend:`
+- `my_id [score] -> 2.03 (confidence 0.730)` followed by indented `legend:`
   (`0="low", 1="medium", ...`) and `probabilities:` (`0 0.100, 1 0.200, ...`)
   lines
 

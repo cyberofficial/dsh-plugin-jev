@@ -15,7 +15,7 @@ accounted**.
 | Surface | `{ state, questions, model? }` via tool arguments | `jev.ask({ state, questions, model?, signal?, source? })` | `POST /plugins/dsh-plugin-jev/api/ask` with a JSON body |
 | Returns | rendered text answer + `meta.jevUsage` on the `tool/result` event | `{ model, answers, usage, costUsd, elapsedMs, credential }` | the same envelope as JSON, plus per-event accounting |
 | Usage recorded | `source: 'tool'` + per-chat projection | `source: 'host'` (or `'guard'`) | `source: 'host'` |
-| Aborts on turn cancel | yes (harness-managed signal) | only if the caller passes a `signal` | connection close |
+| Aborts on turn cancel | yes (harness-managed signal) | only if the caller passes a `signal` | not propagated: the upstream call completes server-side even if the client disconnects |
 | Errors surfaced as | rendered failure text the model reads | thrown `Error` with `.code` | HTTP status + `{ error }` |
 | Key required | yes | yes | yes |
 

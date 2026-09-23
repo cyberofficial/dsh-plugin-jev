@@ -1,6 +1,6 @@
 # Codebase map (for maintainers and integrating agents)
 
-Package: `dsh-plugin-jev` 2.0.0, ESM, Node ≥ 18. Entry `lib/index.js`.
+Package: `dsh-plugin-jev` 2.0.0, ESM ("type": "module"; no engines field declared). Entry `lib/index.js`.
 Exports: `.` (host), `./service`, `./client` (built bundle), `./package.json`.
 
 ## Module map
@@ -91,6 +91,7 @@ Order matters and is deliberate:
 | `test/guard.test.mjs` | layers, decision table, cache, fail modes, counters persistence, routes | drives the real `apply()` |
 | `test/key.test.mjs` | every HTTP route incl. ask-route accounting and 400 mapping | handlers driven with fake req/res |
 | `test/client.test.mjs` | the built bundle: pill, modal, hook-count regression, fetch counting | `statefulReact` fake enforces React error #310 |
+| `test/docs.test.mjs` | every testable claim in `docs/` against the library | if a doc and the code disagree, this fails |
 
 Suite conventions: explicit `process.exit` at the end (stubbed timers leak
 handles otherwise); timer spies call through; the `statefulReact` fake's

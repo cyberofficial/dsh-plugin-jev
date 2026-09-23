@@ -31,8 +31,8 @@ launch-environment variable `TYPESAFE_API_KEY`.
   **Jev cannot read your workspace.** Whatever context the judgment needs must
   be inside this value: transcripts, file contents, numbers, dates, prior
   outcomes. It is stateless between calls.
-- `model` -  optional alias (`jev-latest` by default). Unknown values are
-  rejected by the upstream; the plugin's `/models` route lists what is valid.
+- `model` -  optional alias (`jev-latest` by default). The `/models` route
+  lists what is valid; anything else is the caller's risk.
 - `questions` -  1 to 64 entries, keyed by a **stable question id**. Ids are
   echoed back verbatim in `answers`, so use ids you can switch on.
 
@@ -40,18 +40,19 @@ launch-environment variable `TYPESAFE_API_KEY`.
 
 | Type | Shape | Answer returned |
 | --- | --- | --- |
-| `noul` | `criteria` is `{ true: "...", false: "..." }` (both strings; keys required) | `{ type: "noul", noul: <0..1> }` -  the calibrated probability that the answer is TRUE. |
-| `choice` | `criteria` is an object mapping **every option name** to a description string or `null`; at least one option | `{ type: "choice", choice: "<option>", confidence: <0..1>, probabilities: { <option>: p } }` -  exactly one option wins. |
-| `score` | `criteria` is an ordered array of **at least two** non-empty strings (lowest → highest) | `{ type: "score", score: <index as float>, confidence: <0..1>, legend: { "0": band0, ... }, probabilities: { "0": p, ... } }` |
+| `noul` | `criteria` is OPTIONAL; when present it is `{ true?: "...", false?: "..." }` (either side may be omitted; values must be strings) | `{ type: "noul", noul: <0..1> }` -  the calibrated probability that the answer is TRUE. |
+| `choice` | `criteria` is REQUIRED: an object mapping **every option name** to a description string or `null`; at least one option | `{ type: "choice", choice: "<option>", confidence: <0..1>, probabilities: { <option>: p } }` -  exactly one option wins. |
+| `score` | `criteria` is REQUIRED: an ordered array of **at least two** non-empty strings (lowest → highest) | `{ type: "score", score: <index as float>, confidence: <0..1>, legend: { "0": band0, ... }, probabilities: { "0": p, ... } }` |
 
 Validation rules enforced by the plugin before anything leaves the host
 (`parseQuestions` / `buildRequest` in `lib/index.js`):
 
 - unknown fields on a question are **dropped**, not passed through;
 - `instructions` must be a non-empty string (or an array of strings);
-- `noul` requires both criteria strings; `choice` requires ≥ 1 option, no empty
-  option names, values string-or-null; `score` requires ≥ 2 non-empty level
-  strings;
+- question ids must be unique after trimming; a duplicate id is refused;
+- `noul` criteria are optional (an object of optional `true`/`false` string
+  descriptions); `choice` requires ≥ 1 option, no empty option names, values
+  string-or-null; `score` requires ≥ 2 non-empty level strings;
 - ≤ 64 questions per call; the whole serialized request ≤ 400,000 chars;
 - an empty state (empty string, empty object, empty array) is rejected.
 
