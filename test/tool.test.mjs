@@ -199,13 +199,20 @@ await check('the fold reads usage out of a rendered result (nested dispatches la
   const tool = harness.toolDefs[0]
   const value = await tool.execute(ARGS)
   const text = tool.output.render(ARGS, value)[0].text
-  const event = { type: 'tool/result', time: 1700000000000, data: { message: { content: [{ type: 'tool-result', content: [{ type: 'text', text }] }] } } }
-  const folded = harness.projections[0].apply(harness.projections[0].init(), event)
+  const apply = harness.projections[0].apply
+  // Session format v4 flattened tool results: the result's own blocks sit
+  // directly under `message.content`. This is the shape a current session
+  // writes, and the one the fold must read.
+  const flat = { type: 'tool/result', time: 1700000000000, data: { message: { role: 'tool', isError: false, content: [{ type: 'text', text }] } } }
+  const folded = apply(harness.projections[0].init(), flat)
   assert.equal(folded.calls, 1)
   assert.equal(folded.inputTokens, 453)
   assert.equal(folded.outputTokens, 73)
   assert.equal(folded.byModel['jev-1.13.0'].calls, 1)
   assert.ok(folded.lastAt)
+  // A pre-v4 log keeps its counts too: the identical render one wrapper deeper.
+  const wrapped = { type: 'tool/result', time: 1700000000000, data: { message: { content: [{ type: 'tool-result', content: [{ type: 'text', text }] }] } } }
+  assert.equal(apply(harness.projections[0].init(), wrapped).calls, 1, 'the retired v3 wrapper still folds')
 })
 
 await check('the fold refuses results that merely echo a Jev render', async () => {
@@ -214,10 +221,22 @@ await check('the fold refuses results that merely echo a Jev render', async () =
   const text = tool.output.render(ARGS, await tool.execute(ARGS))[0].text
   const apply = harness.projections[0].apply
   const init = harness.projections[0].init()
-  const wrap = (part) => ({ type: 'tool/result', time: 1, data: { message: { content: [{ type: 'tool-result', content: [{ type: 'text', text: part }] }] } } })
-  assert.equal(apply(init, wrap('output was: ' + JSON.stringify(text))), init, 'JSON-quoted echo must not count')
-  assert.equal(apply(init, wrap(text + '\ntrailing remark')), init, 'trailing text must not count')
-  assert.equal(apply(init, wrap(text.slice(text.indexOf('\n') + 1))), init, 'missing header must not count')
+  // One wrapper per shape: a current (flat) result and a pre-v4 (nested) one.
+  const wrap = (part, legacy) => ({
+    type: 'tool/result',
+    time: 1,
+    data: legacy
+      ? { message: { content: [{ type: 'tool-result', content: [{ type: 'text', text: part }] }] } }
+      : { message: { role: 'tool', isError: false, content: [{ type: 'text', text: part }] } },
+  })
+  for (const legacy of [false, true]) {
+    const label = legacy ? 'pre-v4 nested' : 'current flat'
+    assert.equal(apply(init, wrap('output was: ' + JSON.stringify(text), legacy)), init, label + ': JSON-quoted echo must not count')
+    assert.equal(apply(init, wrap(text + '\ntrailing remark', legacy)), init, label + ': trailing text must not count')
+    assert.equal(apply(init, wrap(text.slice(text.indexOf('\n') + 1), legacy)), init, label + ': missing header must not count')
+    // A result that cannot be one plain text render never counts.
+    assert.equal(apply(init, { type: 'tool/result', time: 1, data: { message: { role: 'tool', content: [{ type: 'text', text }, { type: 'image' }] } } }), init, 'mixed blocks must not count')
+  }
 })
 
 await check('the stored model is the default when args.model is absent', async () => {

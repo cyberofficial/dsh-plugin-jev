@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-jev",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "private": true,
   "description": "Agent-facing TypeSafe Jev (System One) for DSH — a jev_ask tool the model calls, a per-chat usage chip, and a Settings tab for the key, model choice, and overall stats",
   "type": "module",
