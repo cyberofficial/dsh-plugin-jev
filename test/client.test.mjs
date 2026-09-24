@@ -839,6 +839,18 @@ await check('the panel surfaces a load error instead of an empty log', () => {
   assert.ok(text.includes('Jev request failed (HTTP 500)'), 'the route error is surfaced verbatim')
 })
 
+await check('the built bundle carries the settings design system', () => {
+  // The restyle is class-driven: if the sheet or the label class is missing
+  // from the bundle, every section renders unstyled and the tab falls apart
+  // silently. These strings are the load-bearing part of the visual contract.
+  const source = readFileSync(bundlePath, 'utf8')
+  for (const marker of ['dshJevSection', 'dshJevLabel', 'dshJevStatGrid', ':focus-visible']) {
+    assert.ok(source.includes(marker), 'bundle carries ' + marker)
+  }
+  assert.ok(source.includes('background:var(--dsw-alias-bg-raised'), 'sections sit on a raised surface')
+  assert.ok(source.includes('border-radius:12px;padding:12px 14px'), 'section card rhythm is intact')
+})
+
 await check('the built bundle carries the monitor-mode explanation', () => {
   const source = readFileSync(bundlePath, 'utf8')
   assert.ok(source.includes('monitor mode, so nothing is being blocked'), 'the pill panel must explain monitor mode')

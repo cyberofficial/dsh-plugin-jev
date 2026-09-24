@@ -101,52 +101,67 @@ window.__ModuleLoader__.load({
     const EMPTY_BLOCK_DRAFT = { id: '', intent: '', patternsText: '', prefilterText: '', scope: 'global', absolute: false, enabled: true }
 
     const CSS = [
-      '.dshJevSection{display:flex;flex-direction:column;gap:6px;border:.5px solid var(--dsw-alias-border-l2);border-radius:10px;padding:8px 10px}',
-      '.dshJevSection>h4{margin:0;font-size:12px;font-weight:600;color:var(--dsw-alias-label-caption);text-transform:uppercase;letter-spacing:.03em}',
-      '.dshJevRow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}',
-      '.dshJevRow input,.dshJevRow select{background:var(--dsw-alias-input-bg,#12151e);border:.5px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:5px 8px;font-size:12px;box-sizing:border-box}',
+      // Section cards: the visual unit of the tab. A raised surface, a clear
+      // heading (sentence case — settings read better without the shout), and a
+      // consistent 8px content rhythm, so every section feels the same.
+      '.dshJevSection{display:flex;flex-direction:column;gap:8px;background:var(--dsw-alias-bg-raised,#12151e);border:1px solid var(--dsw-alias-border-l2,#242a38);border-radius:12px;padding:12px 14px;box-sizing:border-box}',
+      '.dshJevSection>h4{margin:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);letter-spacing:.01em;text-transform:none}',
+      // Form rows: a fixed label column, then the control, then any caption.
+      '.dshJevRow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;min-height:28px}',
+      '.dshJevLabel{min-width:170px;flex:0 0 auto;color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500}',
+      '.dshJevRow input,.dshJevRow select{background:var(--dsw-alias-input-bg,#0e1116);border:1px solid var(--dsw-alias-border-l1,#2a3140);color:var(--dsw-alias-label-primary);border-radius:8px;padding:6px 10px;font-size:12px;box-sizing:border-box}',
+      '.dshJevRow input:focus-visible,.dshJevRow select:focus-visible,.dshJevArea:focus-visible,.dshJevKey input:focus-visible{outline:1.5px solid var(--dsw-alias-accent,var(--dsw-alias-state-accent,#5b8def));outline-offset:1px}',
       '.dshJevGrow{flex:1;min-width:140px}',
-      '.dshJevBtn{background:var(--dsw-alias-accent,var(--dsw-alias-state-accent,#5b8def));color:#fff;border:none;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer}',
-      '.dshJevBtn:disabled{opacity:.5;cursor:not-allowed}',
-      '.dshJevBtn.ghost{background:0 0;color:var(--dsw-alias-label-caption);border:.5px solid var(--dsw-alias-border-l1);font-weight:400}',
-      '.dshJevHint{color:var(--dsw-alias-label-caption);font-size:11px}',
+      '.dshJevBtn{background:var(--dsw-alias-accent,var(--dsw-alias-state-accent,#5b8def));color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;line-height:1.3}',
+      '.dshJevBtn:hover:not(:disabled){filter:brightness(1.08)}',
+      '.dshJevBtn:disabled{opacity:.45;cursor:not-allowed}',
+      '.dshJevBtn.ghost{background:0 0;color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l1,#2a3140);font-weight:500}',
+      '.dshJevHint{color:var(--dsw-alias-label-caption);font-size:11.5px;line-height:1.45}',
       '.dshJevErr{color:var(--dsw-alias-state-danger-primary,#ef6b6b);font-size:12px;white-space:pre-wrap}',
       '.dshJevOk{color:var(--dsw-alias-state-success-primary,#3dd68c);font-size:12px}',
-      '.dshJevKey{display:flex;gap:6px;padding:2px 0;align-items:center;flex-wrap:wrap}',
-      '.dshJevKey input{flex:1;min-width:200px;background:var(--dsw-alias-input-bg,#12151e);border:.5px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:5px 8px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}',
-      '.dshJevStats{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;padding:1px 9px;color:var(--dsw-alias-label-caption);font-size:11px;font-variant-numeric:tabular-nums;background:0 0}',
+      '.dshJevKey{display:flex;gap:8px;padding:2px 0;align-items:center;flex-wrap:wrap}',
+      '.dshJevKey input{flex:1;min-width:200px;background:var(--dsw-alias-input-bg,#0e1116);border:1px solid var(--dsw-alias-border-l1,#2a3140);color:var(--dsw-alias-label-primary);border-radius:8px;padding:6px 10px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}',
+      // The composer-dock pill: unchanged in role, kept quiet and scannable.
+      '.dshJevStats{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;border:1px solid var(--dsw-alias-border-l1,#2a3140);border-radius:999px;padding:2px 10px;color:var(--dsw-alias-label-caption);font-size:11px;font-variant-numeric:tabular-nums;background:0 0}',
       '.dshJevStatsName{color:var(--dsw-alias-label-secondary);font-weight:600}',
       '.dshJevStats[data-empty=true]{opacity:.6}',
       '.dshJevStatsSep{color:var(--dsw-alias-separator-primary)}',
       '.dshJevDock{display:flex;justify-content:center;width:100%;order:30;padding:0 0 4px}',
-      '.dshJevStatGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px}',
-      '.dshJevStat{border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;padding:6px 8px;display:flex;flex-direction:column;gap:2px}',
-      '.dshJevStat>b{color:var(--dsw-alias-label-primary);font-size:14px;font-variant-numeric:tabular-nums}',
+      // Stat cards: the number leads, the label is quiet beneath; the cell is a
+      // base-tone inset so it reads as data, not chrome.
+      '.dshJevStatGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}',
+      '.dshJevStat{border:1px solid var(--dsw-alias-border-l2,#242a38);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;background:var(--dsw-alias-bg-base,#0e1116);box-sizing:border-box}',
+      '.dshJevStat>b{color:var(--dsw-alias-label-primary);font-size:15px;font-variant-numeric:tabular-nums;line-height:1.2}',
       '.dshJevStat>span{color:var(--dsw-alias-label-caption);font-size:11px}',
-      '.dshJevModelList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}',
-      '.dshJevModel{display:flex;justify-content:space-between;gap:8px;font-size:12px}',
+      // Two-column lists: name/value pairs with hairline dividers instead of a
+      // naked stack, so a list of models or rules reads as a table without one.
+      '.dshJevModelList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0}',
+      '.dshJevModel{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;padding:6px 0;border-bottom:.5px solid var(--dsw-alias-border-l2,#242a38)}',
+      '.dshJevModel:last-child{border-bottom:none;padding-bottom:2px}',
       '.dshJevModel b{color:var(--dsw-alias-label-primary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:500}',
       '.dshJevModel span{color:var(--dsw-alias-label-caption)}',
-      '.dshJevCheck{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--dsw-alias-label-primary);cursor:pointer}',
+      '.dshJevCheck{display:flex;gap:7px;align-items:center;font-size:12px;color:var(--dsw-alias-label-primary);cursor:pointer;min-height:24px}',
       '.dshJevCheck input{accent-color:var(--dsw-alias-accent,var(--dsw-alias-state-accent,#5b8def));margin:0}',
-      '.dshJevArea{width:100%;min-height:62px;background:var(--dsw-alias-input-bg,#12151e);border:.5px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:5px 8px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;box-sizing:border-box;resize:vertical}',
-      '.dshJevBlock{display:flex;flex-direction:column;gap:4px;border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;padding:6px 8px}',
+      '.dshJevArea{width:100%;min-height:62px;background:var(--dsw-alias-input-bg,#0e1116);border:1px solid var(--dsw-alias-border-l1,#2a3140);color:var(--dsw-alias-label-primary);border-radius:8px;padding:6px 10px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;box-sizing:border-box;resize:vertical;line-height:1.45}',
+      // Rule/log cards share one density.
+      '.dshJevBlock{display:flex;flex-direction:column;gap:6px;border:1px solid var(--dsw-alias-border-l2,#242a38);border-radius:10px;padding:8px 10px;background:var(--dsw-alias-bg-base,#0e1116);box-sizing:border-box}',
       '.dshJevBlockHead{display:flex;gap:6px;align-items:center;flex-wrap:wrap}',
       // The block log is a modal: a dock-anchored panel grew taller than the
       // chat as soon as a wrapper script landed in the log. Fixed positioning
       // has to reach the viewport, hence the very high z-index, and the inner
       // scroll area keeps a long log navigable without moving the page.
       '.dshJevModalBackdrop{position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;box-sizing:border-box;overflow:auto}',
-      '.dshJevModal{display:flex;flex-direction:column;gap:8px;width:min(900px,100%);max-height:86vh;background:var(--dsw-alias-bg-base,#0e1116);border:.5px solid var(--dsw-alias-border-l2);border-radius:12px;padding:12px 14px;box-sizing:border-box;box-shadow:0 18px 48px rgba(0,0,0,.5)}',
-      '.dshJevModalScroll{display:flex;flex-direction:column;gap:8px;overflow:auto;min-height:0}',
+      '.dshJevModal{display:flex;flex-direction:column;gap:10px;width:min(900px,100%);max-height:86vh;background:var(--dsw-alias-bg-raised,#12151e);border:1px solid var(--dsw-alias-border-l2,#242a38);border-radius:14px;padding:14px 16px;box-sizing:border-box;box-shadow:0 18px 48px rgba(0,0,0,.5)}',
+      '.dshJevModalScroll{display:flex;flex-direction:column;gap:10px;overflow:auto;min-height:0}',
       '.dshJevPanelCmdWrap{margin:0}',
       '.dshJevPanelCmdWrap>summary{cursor:pointer;color:var(--dsw-alias-label-caption);font-size:11px;padding:2px 0}',
       '.dshJevPanelCmdWrap[open]>summary{margin-bottom:4px}',
       '.dshJevBlockHead>b{color:var(--dsw-alias-label-primary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;font-weight:600}',
-      '.dshJevTag{border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;padding:0 6px;font-size:10px;color:var(--dsw-alias-label-caption);text-transform:uppercase;letter-spacing:.03em}',
-      '.dshJevPanelList{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;width:100%}',
-      '.dshJevPanelCmd{display:block;margin:0;padding:5px 7px;background:var(--dsw-alias-input-bg,#12151e);border:.5px solid var(--dsw-alias-border-l1);border-radius:6px;color:var(--dsw-alias-label-primary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}',
-      '.dshJevPanel{display:flex;flex-direction:column;gap:6px;width:100%;border:.5px solid var(--dsw-alias-border-l2);border-radius:10px;padding:8px 10px;box-sizing:border-box}',
+      '.dshJevTag{border:1px solid var(--dsw-alias-border-l1,#2a3140);border-radius:999px;padding:1px 7px;font-size:10px;color:var(--dsw-alias-label-caption);text-transform:uppercase;letter-spacing:.04em;line-height:1.5}',
+      '.dshJevPanelList{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;width:100%}',
+      '.dshJevPanelCmd{display:block;margin:0;padding:6px 8px;background:var(--dsw-alias-input-bg,#0e1116);border:1px solid var(--dsw-alias-border-l1,#2a3140);border-radius:8px;color:var(--dsw-alias-label-primary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;line-height:1.45}',
+      // The modal body is plain content now; the modal chrome provides the card.
+      '.dshJevPanel{display:flex;flex-direction:column;gap:8px;width:100%;box-sizing:border-box}',
       'div:has(>[data-slot="conversation.composer.dock"]){flex-wrap:wrap}',
     ].join('')
 
@@ -896,7 +911,7 @@ window.__ModuleLoader__.load({
         checkRow('Enabled — score commands before they run', config.enabled === true, (event) => props.onPatch({ enabled: event.target.checked }),
           'Off means no scoring, no latency, and no Jev spend.'),
         React.createElement('div', { className: 'dshJevRow' },
-          React.createElement('span', { className: 'dshJevHint' }, 'Mode'),
+          React.createElement('span', { className: 'dshJevLabel' }, 'Mode'),
           React.createElement('select', { value: mode, onChange: (event) => props.onPatch({ mode: event.target.value }) },
             GUARD_MODES.map((value) => React.createElement('option', { key: value, value }, guardLabelFor(value))),
           ),
@@ -907,7 +922,7 @@ window.__ModuleLoader__.load({
         React.createElement('div', { className: 'dshJevHint' },
           'In monitor mode nothing is blocked; the guard records what it would have blocked so the thresholds can be judged before they are trusted. In enforce mode a flagged command is denied before it runs.'),
         React.createElement('div', { className: 'dshJevRow' },
-          React.createElement('span', { className: 'dshJevHint' }, 'Block at or above'),
+          React.createElement('span', { className: 'dshJevLabel' }, 'Block at or above'),
           React.createElement('select', { value: threshold, onChange: (event) => props.onPatch({ blockThreshold: event.target.value }) },
             SEVERITY_BANDS.map((band) => React.createElement('option', { key: band, value: band }, band)),
           ),
@@ -916,7 +931,7 @@ window.__ModuleLoader__.load({
         checkRow('Block when the effect cannot be undone', config.blockIrreversible !== false, (event) => props.onPatch({ blockIrreversible: event.target.checked }),
           'Escalates a moderate-or-worse command below the threshold when Jev judges it irreversible.'),
         React.createElement('div', { className: 'dshJevRow' },
-          React.createElement('span', { className: 'dshJevHint' }, 'Confidence floor'),
+          React.createElement('span', { className: 'dshJevLabel' }, 'Confidence floor'),
           React.createElement('input', {
             type: 'number',
             min: 0,
@@ -929,7 +944,7 @@ window.__ModuleLoader__.load({
           React.createElement('span', { className: 'dshJevHint' }, 'Below this a block is downgraded to a warning — Jev was unsure.'),
         ),
         React.createElement('div', { className: 'dshJevRow' },
-          React.createElement('span', { className: 'dshJevHint' }, 'Scored tools'),
+          React.createElement('span', { className: 'dshJevLabel' }, 'Scored tools'),
           React.createElement('input', {
             className: 'dshJevGrow',
             value: props.toolsValue,
@@ -1002,7 +1017,7 @@ window.__ModuleLoader__.load({
         React.createElement('div', { className: 'dshJevHint' }, editing ? 'Editing rule ' + draft.id : 'Add a rule'),
         React.createElement('div', { className: 'dshJevBlock' },
           React.createElement('div', { className: 'dshJevRow' },
-            React.createElement('span', { className: 'dshJevHint' }, 'Intent'),
+            React.createElement('span', { className: 'dshJevLabel' }, 'Intent'),
             React.createElement('input', {
               className: 'dshJevGrow',
               value: draft.intent,
@@ -1036,7 +1051,7 @@ window.__ModuleLoader__.load({
           React.createElement('div', { className: 'dshJevHint' },
             'Prefilter — one token per line, optional. ' + prefilterNote(parsePrefilter(draft.prefilterText))),
           React.createElement('div', { className: 'dshJevRow' },
-            React.createElement('span', { className: 'dshJevHint' }, 'Scope'),
+            React.createElement('span', { className: 'dshJevLabel' }, 'Scope'),
             React.createElement('select', { value: draft.scope, onChange: (event) => props.onPatchDraft({ scope: event.target.value }) },
               RULE_SCOPES.map((scope) => React.createElement('option', { key: scope, value: scope }, scope === 'workspace' ? 'workspace — this project only' : 'global — every session')),
             ),
@@ -1326,7 +1341,7 @@ window.__ModuleLoader__.load({
           ].filter((entry) => (entry.usage.calls || 0) > 0)
         : []
 
-      return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 10, padding: '4px 2px' } },
+      return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 12, padding: '6px 2px' } },
         React.createElement('div', { className: 'dshJevSection' },
           React.createElement('h4', null, 'TypeSafe API key'),
           React.createElement('div', { className: 'dshJevHint' },
