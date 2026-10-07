@@ -73,8 +73,8 @@ guard.
   - every successful call records its usage on the `tool/result` event — via `meta` for root calls, and readable from the result's rendered text for nested ones (no custom session event, which the harness's log reader would refuse),
     folded by the `jevUsage` session projection and shipped to the browser; and
   - the same call updates a small JSON aggregate under the DSH home for the
-    Settings totals, split by whether the model (`tool`) or a plugin (`host`)
-    made the call.
+    Settings totals, split by origin: the model (`tool`), a plugin or HTTP
+    caller (`host`), or the command guard (`guard`).
 - **Host routes** under `/plugins/dsh-plugin-jev/api/...`: validate the request,
   call `api.typesafe.ai/v1` with the stored credential, normalize the answer
   envelope, and fold a session log into text for use as state. The API key never
@@ -93,11 +93,13 @@ had to spend a main-model round trip asking for prose and parsing it back. The
 host service removes that step:
 
 ```js
-export const inject = ['jev']
-
+// Do NOT add `export const inject = ['jev']` if you want fail-open behavior: a
+// hard inject holds your plugin PENDING until the service exists, so this
+// listener would never register when Jev is absent. Read opportunistically.
 export function apply(ctx) {
-  ctx.on('agent/turn-stopping', async () => {
+  ctx.effect(() => ctx.on('agent/turn-stopping', async ({ agent }) => {
     const jev = ctx.get('jev')
+    if (jev === undefined) return // optional dependency; fail open
     const { answers } = await jev.ask({
       state: describeRecentSteps(),
       questions: {
@@ -105,8 +107,10 @@ export function apply(ctx) {
         drifting: { type: 'noul', instructions: 'Has the work drifted from the objective?' },
       },
     })
-    // answers.complete.noul is a calibrated probability; your code owns the threshold.
-  })
+    // answers.complete.noul is a calibrated probability; your code owns the
+    // threshold. A listener's return value is ignored: to continue the turn,
+    // call agent.steer(createUserMessage({ content, source })).
+  }), 'your-plugin: jev check')
 }
 ```
 
@@ -134,7 +138,8 @@ end work.
 
 Host calls land in the persisted aggregate and in the Settings totals under a
 `host` bucket, and the Settings tab shows the split between `tool` (the model's
-`jev_ask` calls) and `host` (plugin calls). They **cannot** appear in the
+`jev_ask` calls), `host` (plugin and HTTP calls), and `guard` (scored commands).
+They **cannot** appear in the
 per-chat chip: that chip reads the `jevUsage` session projection, whose only
 source is `tool/result` meta, and an out-of-tree plugin cannot append a session
 event of its own — the envelope's `ignorable` marker is not settable through
@@ -154,8 +159,9 @@ It ships **disabled** and in **`monitor` mode**, so enabling it records what it
 `enforce`. Both controls live in **Settings -> Plugins -> Jev (TypeSafe)**.
 
 It applies to `pwsh`, `bash`, `pwsh_persistent` and `bash_persistent` (the list
-is configurable) and it sees nested `run_code` sub-dispatches, so a command built
-inside code execution is not a way around it.
+is configurable) and it sees nested `run_code` sub-dispatches by default (the
+`scoreNested` toggle in Settings), so a command built inside code execution is
+not a way around it.
 
 ### The three layers, in order
 
@@ -187,7 +193,8 @@ because `rm -rf` under `read-only` is not the same command as under
 `danger-full-access`. When the mode cannot be read the guard sends `unknown` and
 tells Jev to assume no containment rather than pretending it knows.
 
-Identical commands are cached on (command + cwd + mode), so repeats are scored
+Identical commands are cached on (command + cwd + sandbox mode + the rule ids
+in scope), so repeats are scored
 once. Every scored command is a real Jev call and is billed: it lands in its own
 `guard` bucket in Settings, so the feature's cost sits next to what it blocks.
 
@@ -218,10 +225,12 @@ once. Every scored command is a real Jev call and is billed: it lands in its own
 ### Seeing what was blocked
 
 The **Jev pill** under the composer is clickable. Expanding it lists every
-command the guard actually refused, newest first, with the **full command**
-(never truncated), **when** it happened, and **why** — the matching rule and its
+command the guard refused, newest first - plus, in `monitor` mode, every command
+it **would** have refused (tagged "would block") - with the **full command**
+(never truncated), **when** it happened, and **why**: the matching rule and its
 intent, or the danger severity and confidence that decided it. A count badge
-appears next to the pill label once anything has been blocked.
+appears next to the pill label once anything has been blocked or would have been
+("N blocked · M would block").
 
 The pill also carries an all-time **scored** figure — every command the guard
 has sent to Jev, allowed or blocked, across every chat and every restart — read
@@ -231,9 +240,12 @@ naturally absent: they never reached Jev and cost nothing.
 
 Two properties are deliberate:
 
-- **Only real refusals are listed.** A `monitor`-mode run and a command the score
-  allowed are not blocks; the counters in Settings cover those. An empty list
-  therefore means nothing was refused, which the panel says outright when the
+- **Allows are never listed; would-be blocks are, but never as blocks.** A
+  command the score allowed never appears. In `enforce`, listed entries are real
+  refusals; in `monitor`, they are would-be refusals tagged "would block" (those
+  commands ran). The badge keeps the two counts apart ("2 blocked · 1 would
+  block"), so a monitor log can never read as blocks that did not happen. An
+  empty list means nothing was flagged, which the panel says outright when the
   guard is in `monitor`.
 - **Nothing is parsed back out of the session log.** Each entry is recorded
   structurally at decision time — command, rule, severity, confidence, trigger,
@@ -287,12 +299,16 @@ The key is stored as the **`typesafe`** credential. Set it in **Settings ->
 Plugins -> Jev (TypeSafe)** (password field + Save, then Remove when needed). The
 literal never rides a response.
 
-Resolution order, newest first:
+Resolution walks (reference, environment) pairs, checking the credential store before the environment inside each pair:
 
-| Priority | Reference | Source |
+| Order | Checked | Source |
 | --- | --- | --- |
-| 1 | `typesafe` | credential store (Settings) |
-| 2 | `TYPESAFE_API_KEY` | credential store, then launch environment |
+| 1 | `typesafe` reference | credential store (Settings) |
+| 2 | `TYPESAFE_API_KEY` variable | launch environment |
+| 3 | `TYPESAFE_API_KEY` reference | credential store (legacy) |
+| 4 | `TYPESAFE_API_KEY` variable | launch environment (again) |
+
+With no primary key stored, an environment key wins over a legacy-stored one.
 
 Get a key from `console.typesafe.ai/keys`. Set it once; the model then uses Jev
 without any further UI.
@@ -356,16 +372,21 @@ falls back to the known aliases `jev-latest`, `jev-preview`, `jev-1.13.0`.
 ## Usage and cost
 
 - **Per chat** — the composer-dock chip reads the `jevUsage` session projection:
-  `Jev · 3 calls · $0.00006`. It is derived from that session's own log, so it
-  is exact for the chat and travels with the session. It always renders; a chat
-  with no calls shows `Jev · 0 calls · $0`. It counts the **model's** `jev_ask`
-  calls only; a plugin calling the host service is counted below instead.
+  `Jev · 3 calls · 0 blocked · $0.00006`. The blocked segment always renders (0
+  when there are none), and once the durable counters load an all-time
+  `· G scored` segment appears between calls and blocked (every command the
+  guard has sent to Jev, across chats and restarts). Calls and cost come from
+  that session's own log, so they are exact for the chat and travel with it. A
+  chat with no calls shows `Jev · 0 calls · 0 blocked · $0`. The calls figure
+  counts the **model's** `jev_ask` calls only; a plugin calling the host service
+  is counted below instead.
 - **Overall** — the Settings tab shows total calls, input/output tokens, and
   estimated cost, a `tool`/`host`/`guard` split of where those calls came from,
   plus a per-model breakdown and the last call. These come from
   `GET /stats`, backed by the aggregate at
   `$DSH_HOME/dsh-plugin-jev.json` (default `~/.dsh/dsh-plugin-jev.json`), so
-  they survive restarts. The file never contains the API key.- **What the key can see** — the TypeSafe API exposes only `POST /v1/systemone`
+  they survive restarts. The file never contains the API key.
+- **What the key can see** — the TypeSafe API exposes only `POST /v1/systemone`
   and `GET /v1/models`; there is no account or billing endpoint. The "catalog"
   in Settings is therefore the full extent of what a key reveals about the
   account.
@@ -385,7 +406,8 @@ All under `/plugins/dsh-plugin-jev/api`:
 | `/key` | POST / DELETE | Store / remove the `typesafe` credential |
 | `/transcript` | GET | Fold session `?session=` into a bounded text state |
 | `/settings` | GET / POST | Read / set the default model |
-| `/stats` | GET | Overall usage aggregate + projected key + price per token |
+| `/stats` | GET | Overall usage aggregate + projection key + price per token + guard counters |
+| `/guard` | GET / POST | Command guard config, lifetime counters, and the block log (POST is a partial config patch) |
 
 The ask route retries once on `429` when the server names a `retry-after` within
 the cap.
@@ -408,14 +430,16 @@ the cap.
 - `test/` — `host.test.mjs` (pure helpers + the store), `tool.test.mjs`
   (the agent tool, the projection, and usage recording), `service.test.mjs` (the
   host service), `guard.test.mjs` (the command guard), `key.test.mjs` (routes
-  with a canned fetch), `client.test.mjs` (drives the real bundle factory)
+  with a canned fetch), `client.test.mjs` (drives the real bundle factory),
+  `docs.test.mjs` (pins testable claims from docs 01, 05, 06, 07 against the
+  library)
 
 Run the checks with `npm test`; `npm run check` does a `npm pack --dry-run`.
 
 ## Behavior and limits
 
 - Requests are bounded to 64 questions and ~400k serialized characters, well
-  under Jev's 64k-token context budget.
+  under Jev's ~32k-token budget for state plus the longest question.
 - The transcript is bounded to the most recent ~80 messages and ~40k characters,
   preserving the head and tail when it must drop text.
 - The aggregate keeps the most recent 200 sessions before pruning the oldest.

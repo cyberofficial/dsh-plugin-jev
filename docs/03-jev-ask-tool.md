@@ -74,8 +74,10 @@ numbers, not a way to offload your thinking.
 
 ## What comes back
 
-The tool result is rendered text (`renderJevResult`), one line per question,
-plus a cost trailer:
+The tool result is rendered text (`renderJevResult`): a first line `Jev
+(<model>) answered:`, then one entry per question (choice and score entries
+span two or three physical lines), then a cost trailer. That header line is
+load-bearing - the usage fold matches it to count nested calls.
 
 - `my_id [noul] -> TRUE (p=0.930)`
 - `my_id [choice] -> phone (p=0.870; confidence 0.910)` followed by an indented
@@ -84,13 +86,16 @@ plus a cost trailer:
   (`0="low", 1="medium", ...`) and `probabilities:` (`0 0.100, 1 0.200, ...`)
   lines
 
-`noul` lines also state the threshold verdict (`TRUE` at ≥ 0.5). A malformed or
-missing answer renders as `my_id: <json>` rather than vanishing, and the
-trailer line is `- 414 input / 44 output tokens, $0.000017, 440ms`.
+`noul` lines also state the threshold verdict (`TRUE` at ≥ 0.5). A null or
+non-object answer renders as `my_id: <json>`; an object with an unrecognized
+type renders as `my_id [<type>]: <json>`; an id absent from the answers map
+produces no line at all. The trailer line is `- 414 input / 44 output tokens,
+$0.000017, 440ms`.
 
-The full envelope is also attached as `meta.jevUsage` on the `tool/result`
-session event, which is how the per-chat usage pill counts calls (see
-[07-accounting.md](07-accounting.md)).
+The call's **usage** (model, input/output tokens, cost, session id, timestamp)
+is attached as `meta.jevUsage` on the `tool/result` session event; answers and
+timing are not part of that meta. That is how the per-chat usage pill counts
+calls (see [07-accounting.md](07-accounting.md)).
 
 ## How to act on the answers
 

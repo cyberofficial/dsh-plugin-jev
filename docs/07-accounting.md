@@ -8,16 +8,22 @@ different visibility.
 
 - Written by the **tool path only**: each completed `jev_ask` attaches its
   usage as `meta.jevUsage` on the `tool/result` session event
-  (`output.presentationMeta`; root executions only).
+  (`output.presentationMeta`; root executions only). A **nested** `jev_ask`
+  (dispatched inside another tool) lands no meta, so the fold also reads the
+  call back out of the rendered result text, anchored on the header line and
+  the cost trailer - that is how nested calls still reach the pill.
 - The `jevUsage` session projection (`lib/usage.js`, key `jevUsage`, state
   version 1) folds those events into `{ calls, inputTokens, outputTokens,
   costUsd, lastAt, byModel, guardBlocks }` and the client reads it with
   `useProjection('jevUsage')` to render the composer-dock pill:
-  `Jev · N calls · M blocked · $cost`.
+  `Jev · N calls · [G scored ·] M blocked · $cost` (blocked always renders;
+  the all-time `G scored` segment appears once the durable counters load).
 - `guardBlocks` counts refusals: a guard denial produces **no** usage meta (the
   command never ran), so the fold recognizes the denial by its fixed text
   prefix `[jev-guard] ` anchored at the start of the result text. Text that
   merely *quotes* a denial is not counted.
+- Legacy `jev/usage` events (only present in repaired historical logs, retro-
+  marked ignorable) are folded too when present; nothing new writes them.
 - Host and HTTP calls **cannot** appear here: a plugin cannot append a session
   event (the envelope's `ignorable` marker is unsettable through
   `Session.append`, and a custom event type breaks session reload). This gap is
@@ -42,7 +48,7 @@ different visibility.
  - `totals` -  all calls: `{ calls, inputTokens, outputTokens, costUsd }`;
  - `byModel` -  the same split per resolved model;
  - `bySource` -  the same split per origin: `tool` | `host` | `guard`;
- - `sessions` -  per-session usage (≤ 200 most recent, pruned by `lastAt`);
+ - `sessionsTracked` - a count of per-session buckets (the session map itself, capped at 200 by `lastAt`, is internal state and never reaches `/stats`);
  - `lastCall` -  the most recent single call with `source` and `at`;
  - `updatedAt`.
 

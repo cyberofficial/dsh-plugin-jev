@@ -38,13 +38,18 @@ a small JSON store that survives harness restarts.
   enumerate anything, has no memory between calls, and cannot read your
   filesystem. Everything it knows arrives in the `state` you send.
 - Pricing: **$42 per billion input tokens** (`DEFAULT_COST_PER_TOKEN = 4.2e-8`).
-  Output tokens are free. A typical call costs `$0.00002`-`$0.00008`.
+  Output tokens are free. A typical single-question call costs `$0.00001`-`$0.00004`
+  (300-800 input tokens).
 - Limits: **64 questions** per call, serialized request **≤ 400,000 chars**,
   service-level state budget **≤ 200,000 chars** (the API allows ~32k tokens of
   state plus the longest question).
 - No TypeSafe key configured → error with `.code === 'no-key'` (HTTP: 401).
-  Malformed caller input → `ServiceInputError` with `.code === 'bad-input'`
-  (HTTP: 400). Upstream failure → HTTP 502. Never retry a 429 faster than its
-  `retry-after` says.
+  Caller-shape mistakes at the service seam (missing/ill-typed state or
+  questions, over-budget or blank-string state, too many questions, non-string
+  model) → `ServiceInputError` with `.code === 'bad-input'` (HTTP: 400).
+  Deeper value problems (malformed question values, an empty questions map, an
+  empty object/array state, invalid JSON, requests over 400k chars) and upstream
+  failures → HTTP 502, deliberately untagged so a 502 can also mean the upstream.
+  Never retry a 429 faster than its `retry-after` says.
 - Consumers that gate agent behavior **must fail open** on any error here. This
   plugin supplies numbers; your code owns the decision.

@@ -12,7 +12,7 @@ Exports: `.` (host), `./service`, `./client` (built bundle), `./package.json`.
 | `lib/service.js` | The injectable host service for sibling plugins | `createJevService`, `JEV_SERVICE_NAME`, `ServiceInputError`, `MAX_SERVICE_STATE_CHARS`, `MAX_SERVICE_QUESTIONS` |
 | `lib/guard.js` | The command guard: layers, decision table, rules, cache, records | `createCommandGuard`, `defaultGuardConfig`, `normalizeGuardConfig`, `normalizeRules`, `commandFromExec`, `matchRules`, `semanticRules`, `prefilterRules`, `severityAtLeast`, `dangerDecision`, `blockedMessage`, `scoringCacheKey`, `LruCache`, `SEVERITY_BANDS`, `GUARD_MODES`, `RULE_SCOPES`, `DEFAULT_GUARD_TOOLS`, `MAX_COMMAND_CHARS`, `MAX_DENIALS`, `MAX_PATTERN_CHARS`, `DEFAULT_CONFIDENCE_FLOOR`, `DEFAULT_GUARD_TIMEOUT_MS` |
 | `lib/store.js` | The durable JSON store (aggregate, config, counters) | `JevStore`, `normalizeState`, `emptyUsage`, `USAGE_SOURCES`, `GUARD_COUNTER_KEYS`, `MAX_SESSIONS`, `STATE_FILE_NAME`, `resolveHome` |
-| `lib/usage.js` | The per-chat projection fold and client-side render helpers | `registerJevUsageProjection`, `JEV_USAGE_KEY`, `JEV_USAGE_EVENT`, `emptyJevUsage`, `foldJevUsage`, `jevUsageMeta`, `isGuardDenial`, `GUARD_DENIAL_PREFIX` |
+| `lib/usage.js` | The per-chat projection fold and the usage formatting helpers (host-side, exported for tests) | `registerJevUsageProjection`, `JEV_USAGE_KEY`, `JEV_USAGE_EVENT`, `emptyJevUsage`, `foldJevUsage`, `jevUsageMeta`, `isGuardDenial`, `formatUsd`, `formatJevStats` |
 | `src/client.template.js` | Source of the client bundle (React, no build-time JSX) | `apply`, `JevStatsPill`, `JevSettingsTab`, `renderModal`, `renderDenialPanelBody`, `guardScored`, `guardAllTimeLine`, `badgeLabel`, `denialCounts`, `guardFormPatch`, `formatCost`, `formatJevStats` |
 | `lib/client.js` | **Built** bundle (do not edit by hand; run `npm run build`) | the same API via `window.__ModuleLoader__.load` |
 | `scripts/build-client.mjs` | Template → bundle builder; `--check` mode verifies freshness | -  |
@@ -89,9 +89,9 @@ Order matters and is deliberate:
 | `test/tool.test.mjs` | tool schema enforcement, rendering, `meta.jevUsage` projection | |
 | `test/service.test.mjs` | service contract, error taxonomy, accounting split | |
 | `test/guard.test.mjs` | layers, decision table, cache, fail modes, counters persistence, routes | drives the real `apply()` |
-| `test/key.test.mjs` | every HTTP route incl. ask-route accounting and 400 mapping | handlers driven with fake req/res |
-| `test/client.test.mjs` | the built bundle: pill, modal, hook-count regression, fetch counting | `statefulReact` fake enforces React error #310 |
-| `test/docs.test.mjs` | every testable claim in `docs/` against the library | if a doc and the code disagree, this fails |
+| `test/key.test.mjs` | 7 of the 8 HTTP routes (ask incl. accounting and 400 mapping, models, status, key, transcript, settings, stats); the `/guard` routes are pinned in guard.test.mjs | handlers driven with fake req/res |
+| `test/client.test.mjs` | the built bundle: pill, modal, hook-count regression, fetch counting, design-system markers | `statefulReact` fake enforces React error #310 |
+| `test/docs.test.mjs` | testable claims drawn from docs 01, 05, 06, 07 against the library | pins a subset; a pinned claim disagreeing with the code fails the build |
 
 Suite conventions: explicit `process.exit` at the end (stubbed timers leak
 handles otherwise); timer spies call through; the `statefulReact` fake's

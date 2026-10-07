@@ -13,11 +13,14 @@ accounted**.
 | Who calls it | the agent's main model | a sibling DSH plugin (host-side JS) | anything with HTTP access to the harness |
 | Where it runs | tool plane, per-dispatch | in-process function call | the harness web server (`http://127.0.0.1:3080`) |
 | Surface | `{ state, questions, model? }` via tool arguments | `jev.ask({ state, questions, model?, signal?, source? })` | `POST /plugins/dsh-plugin-jev/api/ask` with a JSON body |
-| Returns | rendered text answer + `meta.jevUsage` on the `tool/result` event | `{ model, answers, usage, costUsd, elapsedMs, credential }` | the same envelope as JSON, plus per-event accounting |
+| Returns | rendered text answer + the usage meta `meta.jevUsage` on the `tool/result` event (root executions only; nested dispatches are counted from the rendered text instead) | `{ model, answers, usage, costUsd, elapsedMs, credential }` | the same envelope as JSON, plus one `host`-bucket aggregate record per call (host calls cannot produce session-log events) |
 | Usage recorded | `source: 'tool'` + per-chat projection | `source: 'host'` (or `'guard'`) | `source: 'host'` |
-| Aborts on turn cancel | yes (harness-managed signal) | only if the caller passes a `signal` | not propagated: the upstream call completes server-side even if the client disconnects |
+| Aborts on turn cancel | no: the transport does not forward `exec.signal`, so a cancelled turn discards the result but the upstream call runs (and bills) to completion; only the 30s timeout aborts it | only if the caller passes a `signal` | not propagated: the upstream call completes server-side even if the client disconnects |
 | Errors surfaced as | rendered failure text the model reads | thrown `Error` with `.code` | HTTP status + `{ error }` |
 | Key required | yes | yes | yes |
+
+Route paths in this doc are shorthand for the full namespace
+`/plugins/dsh-plugin-jev/api/<path>`; there is no bare `/api/...` route.
 
 ## How to choose
 
@@ -35,13 +38,18 @@ accounted**.
 
 ## Rules that hold on every surface
 
-1. **The key must be configured.** Resolution order: credential ref
-   `typesafe`, legacy ref `TYPESAFE_API_KEY`, env `TYPESAFE_API_KEY`. With none,
-   you get `.code === 'no-key'` (HTTP 401). Set the key once in Settings →
+1. **The key must be configured.** Resolution walks (reference, environment)
+   pairs: the `typesafe` credential first, then env `TYPESAFE_API_KEY`, then the
+   legacy `TYPESAFE_API_KEY` credential, then env again (so with no primary key
+   stored, an environment key outranks a legacy-stored one). With none, you get
+   `.code === 'no-key'` (HTTP 401). Set the key once in Settings →
    Plugins → Jev (TypeSafe), or `POST /api/key`.
 2. **Fail open.** If your feature gates agent behavior on a Jev answer, any
    error must leave the gate open (allow, continue, retry later). A Jev outage
-   must never strand an agent mid-goal or make the shell unusable.
+   must never strand an agent mid-goal or make the shell unusable. (The plugin's
+   own command guard is the documented exception: rules you mark `absolute` fail
+   closed when Jev is unreachable - see
+   [06-command-guard.md](06-command-guard.md).)
 3. **You own the thresholds.** Jev supplies probabilities; nobody in this
    plugin decides for you what "enough" means -  except the command guard,
    whose thresholds are explicit, persisted, and documented.

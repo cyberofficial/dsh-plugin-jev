@@ -9,9 +9,12 @@ plugin uses it. The plugin talks to exactly two endpoints:
 | `POST /v1/systemone` | Evaluate one state against typed questions. |
 | `GET /v1/models` | List the model aliases/ids the account can send. |
 
-Authentication: `Authorization: Bearer <key>`. The key is resolved from the
-credential ref `typesafe` (legacy fallback `TYPESAFE_API_KEY`), then the
-launch-environment variable `TYPESAFE_API_KEY`.
+Authentication: `Authorization: Bearer <key>`. Resolution walks
+(reference, environment) pairs: the `typesafe` credential, then the
+launch-environment variable `TYPESAFE_API_KEY`, then the legacy
+`TYPESAFE_API_KEY` credential, then the environment again. So with no primary
+key stored, an environment key wins over one stored under the legacy
+reference.
 
 ## The request
 
@@ -34,7 +37,7 @@ launch-environment variable `TYPESAFE_API_KEY`.
 - `model` -  optional alias (`jev-latest` by default). The `/models` route
   lists what is valid; anything else is the caller's risk.
 - `questions` -  1 to 64 entries, keyed by a **stable question id**. Ids are
-  echoed back verbatim in `answers`, so use ids you can switch on.
+  trimmed, then echoed back in `answers`, so use ids you can switch on.
 
 ### The three question types
 
@@ -48,12 +51,16 @@ Validation rules enforced by the plugin before anything leaves the host
 (`parseQuestions` / `buildRequest` in `lib/index.js`):
 
 - unknown fields on a question are **dropped**, not passed through;
-- `instructions` must be a non-empty string (or an array of strings);
+- `instructions` must be a non-empty string, a non-empty array of strings, or an
+  object (deep-cloned); anything else is refused;
 - question ids must be unique after trimming; a duplicate id is refused;
 - `noul` criteria are optional (an object of optional `true`/`false` string
   descriptions); `choice` requires ≥ 1 option, no empty option names, values
   string-or-null; `score` requires ≥ 2 non-empty level strings;
-- ≤ 64 questions per call; the whole serialized request ≤ 400,000 chars;
+- ≤ 64 questions per call; the whole serialized request ≤ 400,000 chars (the
+  HTTP route and host service additionally cap `state` at 200,000 serialized
+  chars before that bound; the `jev_ask` tool path has only the 400,000-char
+  bound);
 - an empty state (empty string, empty object, empty array) is rejected.
 
 ## The response envelope
@@ -70,7 +77,9 @@ The plugin normalizes this and adds:
 
 - `costUsd` -  `input_tokens × 4.2e-8` (output tokens are free);
 - `elapsedMs` -  round-trip time;
-- `credential` -  `{ configured, ref, source }`; **never the key value**.
+- `credential` -  `{ configured, ref, source }`; **never the key value**. Added on
+  the HTTP route and host service paths; the agent-facing tool result omits
+  `credential`.
 
 ## Pricing (verified 2026, Jev 1.13)
 

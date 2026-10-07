@@ -24,7 +24,9 @@ README carries the full warning; keep real backups.
    (20,000) are **refused, not truncated** (`trigger: 'oversize'`): a command
    too big to evaluate could hide its dangerous part past any cut, and
    truncation would let Jev clear an innocent prefix. Refusal is unconditional
-   when the guard is enabled, regardless of the danger threshold.
+   when the guard is enabled, regardless of the danger threshold - one
+   exemption: with `scoreNested` off, nested dispatches return before the rail
+   is reached.
 3. **Semantic rules (one Jev call, fused with layer 4).** For each enabled
    intent-bearing rule whose **prefilter** the command passes, Jev is asked one
    `noul`: "does this command perform the following action, directly or
@@ -46,9 +48,13 @@ all (counted as `skipped`).
 
 Given the severity **value** (the primary signal), the probability that severity
 is at or above the threshold (from the answer's distribution, used only when the
-band is unreadable), the irreversibility probability, and Jev's `confidence`:
+band is unreadable), whether Jev judged the effects irreversible (its noul,
+thresholded at ≥ 0.5 before the table runs), and Jev's `confidence`:
 
 - severity ≥ threshold → **block**
+- band unreadable but the distribution's P(severity ≥ threshold) ≥ 0.5 →
+  **block** (the fallback plays the role the band would, at the same 0.5 cut
+  every other probability uses)
 - severity < threshold, `blockIrreversible` on, irreversibility ≥ 0.5,
   severity ≥ moderate → **block**
 - any block whose `confidence < confidenceFloor` (default 0.7) is
@@ -111,7 +117,7 @@ fully testable offline.
 | `patterns` | substrings, lowercased, each ≤ 200 chars (`MAX_PATTERN_CHARS`) |
 | `intent` | the action description for the semantic layer; empty = literal-only rule |
 | `prefilter` | tokens; a rule is asked about a command only if the command contains one of them. **Empty means always ask** -  the safe default, because a too-narrow prefilter produces false negatives |
-| `scope` | `global` or `workspace` (a workspace rule matches only when the session's cwd equals `workspaceRoot`) |
+| `scope` | `global` or `workspace` (a workspace rule matches when the session's cwd equals `workspaceRoot` after normalization: case-insensitive, `/` separators, trailing slashes ignored) |
 | `absolute` | decides the **fail mode**: on a scoring failure, an absolute rule denies; it does not change normal blocking |
 | `enabled` | per-rule switch |
 

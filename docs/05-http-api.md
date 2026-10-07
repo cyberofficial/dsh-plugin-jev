@@ -66,11 +66,14 @@ curl -s -X POST http://127.0.0.1:3080/plugins/dsh-plugin-jev/api/ask \
 
 ```json
 { "models": [{ "name": "jev-latest", "description": "flagship", "releaseDate": "2026-09-01" }],
-  "cached": false, "fetchedAt": "2026-09-23T01:00:00.000Z" }
+  "cached": false, "fetchedAt": 1758606000000 }
 ```
 
-The catalog is cached for 5 minutes; `?refresh=1` forces a re-read. 502 when
-the upstream fails. `name` values are what you may pass as `model`.
+`fetchedAt` is an epoch-milliseconds **number**, not a timestamp string.
+
+The catalog is cached for 5 minutes; `?refresh=1` forces a re-read. Any
+failure answers 502, including a missing key (unlike `/ask`, this route does not
+map `no-key` to 401). `name` values are what you may pass as `model`.
 
 ## GET /status -  key configuration state
 
@@ -171,9 +174,11 @@ Notes:
  - `defaults` -  `{ blockThreshold, confidenceFloor, tools, severityBands }`.
 - `POST` -  a **partial** config patch; only keys present are replaced.
   `commandBlocks` is merged by rule id (entries with an `id` update in place,
-  entries without get `rule-N` ids; a non-array leaves rules untouched).
-  Unknown/invalid keys are normalized away by `normalizeGuardConfig`. Returns
-  the same payload as GET. Malformed body → 400.
+  entries without get `rule-N` ids; a non-array leaves rules untouched). An
+  ARRAY replaces the whole rule list: rules you do not resend are dropped, so
+  either resend every rule you want to keep or omit the key entirely for no
+  change. Unknown/invalid keys are normalized away by `normalizeGuardConfig`.
+  Returns the same payload as GET. Malformed body → 400.
 
 ```sh
 curl -s http://127.0.0.1:3080/plugins/dsh-plugin-jev/api/guard
